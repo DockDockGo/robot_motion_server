@@ -87,7 +87,7 @@ class DockingUndockingActionServer(Node):
         self.get_logger().info('Executing Docking/Undocking...')
 
         msg = Twist()
-        msg.linear.x = 0.5
+        msg.linear.x = -0.2
 
         # Define and fill the feedback message
         feedback_msg = DockUndock.Feedback()
@@ -175,7 +175,7 @@ class MotionActionServer(Node):
         # feedback_msg.feedback = 0.2
         # goal_handle.publish_feedback(feedback_msg)
 
-        nav2_goal_future = self.nav2_client.send_goal_pose(x=2.0, y=2.0, yaw=1.57)
+        nav2_goal_future = self.nav2_client.send_goal_pose(x=-1.47, y=-3.3, yaw=1.57)
         rclpy.spin_until_future_complete(self.nav2_client, nav2_goal_future)
 
         time.sleep(0.5)
