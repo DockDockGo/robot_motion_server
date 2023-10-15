@@ -26,7 +26,8 @@ setup(
             'robot_motion_server_node = robot_motion_server.robot_motion_server:MotionServer',
             'nav2_client_node = robot_motion_server.robot_motion_server:nav2_client',
             'robot_pose_client_node = robot_motion_server.robot_motion_server:get_pose_client',
-            'robot_docking_undocking_server_node = robot_motion_server.robot_motion_server:DockUndockServer'
+            'robot_docking_undocking_server_node = robot_motion_server.robot_motion_server:DockUndockServer',
+            'custom_navigator_node = robot_motion_server.custom_navigator:CustomNavigator'
         ],
     },
 )
