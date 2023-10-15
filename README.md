@@ -25,7 +25,7 @@ action server independently
 Each action server communicates vital feedback or results which need to be propogated to
 the top level nodes. This specific communication is shown below
 
-![](images/Low_level.png)
+![](images/low_level_v2.png)
 
 # Launching Action Servers
 
