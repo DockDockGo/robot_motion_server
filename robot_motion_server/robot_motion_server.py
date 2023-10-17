@@ -55,7 +55,9 @@ class DockingUndockingActionServer(Node):
         time.sleep(1)
         
         if get_pose_future.result() is not None:
-            feedback_msg.feedback = get_pose_future.result().robot_pose
+            # NOTE: when on server side, it's DockUndock.Feedback().pose_feedback
+            # NOTE: on client side it's, feedback_msg.feedback.pose_feedback
+            feedback_msg.pose_feedback = get_pose_future.result().robot_pose
             goal_handle.publish_feedback(feedback_msg)
 
         goal_handle.succeed()
@@ -66,7 +68,6 @@ class DockingUndockingActionServer(Node):
         result = DockUndock.Result()
         result.success = True
         return result
-
 
 class MotionActionServer(Node):
 
@@ -99,7 +100,7 @@ class MotionActionServer(Node):
         # replace security_route with goal_handle.request.secs
         security_route = [[0.75, -2.82, 0]]
 
-        # Set your demo's initial pose
+        #NOTE: Set init pose skipped for now because we may use 3D localization
         # initial_pose = PoseStamped()
         # initial_pose.header.frame_id = 'map'
         # initial_pose.header.stamp = navigator.get_clock().now().to_msg()
