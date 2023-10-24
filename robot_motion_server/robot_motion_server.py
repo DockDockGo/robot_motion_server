@@ -49,16 +49,19 @@ class DockingUndockingActionServer(Node):
             self.publisher_.publish(msg)
             time.sleep(1)
 
-        get_pose_future = self._robot_pose_client.call_async(self.pose_request)
-        rclpy.spin_until_future_complete(self, get_pose_future)
+        """
+        Fix the below get_pose_future client
+        """
+        # get_pose_future = self._robot_pose_client.call_async(self.pose_request)
+        # rclpy.spin_until_future_complete(self, get_pose_future)
         
-        time.sleep(1)
+        # time.sleep(1)
         
-        if get_pose_future.result() is not None:
-            # NOTE: when on server side, it's DockUndock.Feedback().pose_feedback
-            # NOTE: on client side it's, feedback_msg.feedback.pose_feedback
-            feedback_msg.pose_feedback = get_pose_future.result().robot_pose
-            goal_handle.publish_feedback(feedback_msg)
+        # if get_pose_future.result() is not None:
+        #     # NOTE: when on server side, it's DockUndock.Feedback().pose_feedback
+        #     # NOTE: on client side it's, feedback_msg.feedback.pose_feedback
+        #     feedback_msg.pose_feedback = get_pose_future.result().robot_pose
+        #     goal_handle.publish_feedback(feedback_msg)
 
         goal_handle.succeed()
 
