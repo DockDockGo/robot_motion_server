@@ -45,7 +45,8 @@ class DockingUndockingActionServer(Node):
         # Define and fill the feedback message
         feedback_msg = DockUndock.Feedback()
 
-        for i in range(0, int(goal_handle.request.secs)):
+        for i in range(0, math.ceil(goal_handle.request.secs)):
+            self.get_logger().info("Docking/Undocking in Progress")
             self.publisher_.publish(msg)
             time.sleep(1)
 
@@ -63,13 +64,14 @@ class DockingUndockingActionServer(Node):
         #     feedback_msg.pose_feedback = get_pose_future.result().robot_pose
         #     goal_handle.publish_feedback(feedback_msg)
 
-        goal_handle.succeed()
-
         msg.linear.x = 0.0
         self.publisher_.publish(msg)
 
         result = DockUndock.Result()
         result.success = True
+
+        goal_handle.succeed()
+
         return result
 
 class MotionActionServer(Node):
@@ -101,7 +103,7 @@ class MotionActionServer(Node):
         """
 
         # replace security_route with goal_handle.request.secs
-        security_route = [[0.75, -2.82, 0]]
+        security_route = [[0.0, -2.82, 0], [-0.7, 0.4, 0], [4.0, -2.82, 0]]
 
         #NOTE: Set init pose skipped for now because we may use 3D localization
         # initial_pose = PoseStamped()
