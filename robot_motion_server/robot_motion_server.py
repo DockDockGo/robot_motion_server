@@ -131,7 +131,6 @@ class MotionActionServer(Node):
 
         self.navigator.goThroughPoses(route_poses)
 
-        # Do something during your route (e.x. AI detection on camera images for anomalies)
         # Print ETA for the demonstration
         i = 0
         while not self.navigator.isTaskComplete():
