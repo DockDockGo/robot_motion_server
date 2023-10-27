@@ -40,12 +40,17 @@ class DockingUndockingActionServer(Node):
         self.get_logger().info('Executing Docking/Undocking...')
 
         msg = Twist()
-        msg.linear.x = -0.2
+        msg.linear.x = 0.2
 
         # Define and fill the feedback message
         feedback_msg = DockUndock.Feedback()
 
-        for i in range(0, math.ceil(goal_handle.request.secs)):
+        goal_duration = math.ceil(abs(goal_handle.request.secs))
+        self.get_logger().info(f"Docking Goal Duration is {goal_duration}")
+        if goal_handle.request.secs < 0:
+            msg.linear.x = -1 * msg.linear.x
+
+        for i in range(0, goal_duration):
             self.get_logger().info("Docking/Undocking in Progress")
             self.publisher_.publish(msg)
             time.sleep(1)
@@ -103,7 +108,9 @@ class MotionActionServer(Node):
         """
 
         # replace security_route with goal_handle.request.secs
-        security_route = [[-0.7, 0.4, 0]]
+        # security_route = [[-0.7, 0.4, 0]]
+        # route = PoseStamped[]
+        route = goal_handle.request.goals
 
         #NOTE: Set init pose skipped for now because we may use 3D localization
         # initial_pose = PoseStamped()
@@ -118,15 +125,17 @@ class MotionActionServer(Node):
         # Wait for navigation to activate fully
         self.navigator.waitUntilNav2Active()
 
-        # Send your route
+        #! Potentially skip this unnecessary parsing of route -> route_poses
         route_poses = []
         pose = PoseStamped()
         pose.header.frame_id = 'map'
         pose.header.stamp = self.navigator.get_clock().now().to_msg()
-        pose.pose.orientation.w = 1.0
-        for pt in security_route:
-            pose.pose.position.x = pt[0]
-            pose.pose.position.y = pt[1]
+        for pt in route:
+            pose.pose.position.x = pt.pose.position.x
+            pose.pose.position.y = pt.pose.position.y
+            pose.pose.position.z = 0.0
+            pose.pose.orientation.z = pt.pose.orientation.z
+            pose.pose.orientation.w = pt.pose.orientation.w
             route_poses.append(deepcopy(pose))
 
         self.navigator.goThroughPoses(route_poses)
