@@ -16,12 +16,12 @@ import math
 import time
 
 class DockingUndockingActionServer(Node):
-    
+
     def __init__(self):
         #! TODO: Add namespace
         super().__init__('docking_undocking_action_server')
         self.get_logger().info("Starting Docking Undocking Action Server")
-        
+
         # accept client node instances
         self._robot_pose_client = self.create_client(GetRobotPose, 'get_robot_pose')
         self.pose_request = GetRobotPose.Request()
@@ -55,9 +55,9 @@ class DockingUndockingActionServer(Node):
         """
         # get_pose_future = self._robot_pose_client.call_async(self.pose_request)
         # rclpy.spin_until_future_complete(self, get_pose_future)
-        
+
         # time.sleep(1)
-        
+
         # if get_pose_future.result() is not None:
         #     # NOTE: when on server side, it's DockUndock.Feedback().pose_feedback
         #     # NOTE: on client side it's, feedback_msg.feedback.pose_feedback
@@ -103,7 +103,7 @@ class MotionActionServer(Node):
         """
 
         # replace security_route with goal_handle.request.secs
-        security_route = [[0.0, -2.82, 0], [-0.7, 0.4, 0], [4.0, -2.82, 0]]
+        security_route = [[-0.7, 0.4, 0]]
 
         #NOTE: Set init pose skipped for now because we may use 3D localization
         # initial_pose = PoseStamped()
@@ -115,7 +115,7 @@ class MotionActionServer(Node):
         # initial_pose.pose.orientation.w = 0.0
         # navigator.setInitialPose(initial_pose)
 
-        # Wait for navigation to activate fully 
+        # Wait for navigation to activate fully
         self.navigator.waitUntilNav2Active()
 
         # Send your route
@@ -150,7 +150,7 @@ class MotionActionServer(Node):
         time.sleep(2)
         result = self.navigator.getResult()
         self.get_logger().info(str(result))
-        
+
         # ! Some issue with trying to check just result status
         if str(result) == "TaskResult.SUCCEEDED":
             self.get_logger().info('Route complete!')
@@ -161,16 +161,16 @@ class MotionActionServer(Node):
         elif str(result) == "TaskResult.FAILED":
             self.get_logger().info('route failed!')
             self.navigator_final_result = "fail"
-        
+
 
         motion_server_result = Navigate.Result()
         if self.navigator_final_result == "success":
             motion_server_result.success = True
         else:
             motion_server_result.success = False
-            
+
         goal_handle.succeed()
-        
+
         return motion_server_result
 
 
