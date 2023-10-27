@@ -22,6 +22,11 @@ class DockingUndockingActionServer(Node):
         super().__init__('docking_undocking_action_server')
         self.get_logger().info("Starting Docking Undocking Action Server")
 
+        # accept client node instances
+        self._robot_pose_client = self.create_client(GetRobotPose, 'get_robot_pose')
+        self.pose_request = GetRobotPose.Request()
+        self.pose_request.frame_id = ''
+
         # construct the action server
         self._action_server = ActionServer(
             self,
@@ -38,9 +43,7 @@ class DockingUndockingActionServer(Node):
         msg.linear.x = 0.2
 
         # Define and fill the feedback message
-        # feedback_msg = DockUndock.Feedback()
-        # feedback_msg.pose_feedback = None
-        # goal_handle.publish_feedback(feedback_msg)
+        feedback_msg = DockUndock.Feedback()
 
         goal_duration = math.ceil(abs(goal_handle.request.secs))
         self.get_logger().info(f"Docking Goal Duration is {goal_duration}")
@@ -51,6 +54,20 @@ class DockingUndockingActionServer(Node):
             self.get_logger().info("Docking/Undocking in Progress")
             self.publisher_.publish(msg)
             time.sleep(1)
+
+        """
+        Fix the below get_pose_future client
+        """
+        # get_pose_future = self._robot_pose_client.call_async(self.pose_request)
+        # rclpy.spin_until_future_complete(self, get_pose_future)
+
+        # time.sleep(1)
+
+        # if get_pose_future.result() is not None:
+        #     # NOTE: when on server side, it's DockUndock.Feedback().pose_feedback
+        #     # NOTE: on client side it's, feedback_msg.feedback.pose_feedback
+        #     feedback_msg.pose_feedback = get_pose_future.result().robot_pose
+        #     goal_handle.publish_feedback(feedback_msg)
 
         msg.linear.x = 0.0
         self.publisher_.publish(msg)
@@ -72,15 +89,10 @@ class MotionActionServer(Node):
 
         self.navigator = custom_nav.CustomNavigator()
         self.navigator_final_result = None
-        self.robot_pose = None
 
-        # Pose Subscribers
-        self.pose_subscription = self.create_subscription(
-            PoseWithCovarianceStamped,
-            '/map_pose',  # Topic on which pose is being relayed
-            self.robot_pose_callback,
-            10  # Adjust the queue size as needed
-        )
+        # Pose Clients
+        self._robot_pose_client = self.create_client(GetRobotPose, 'get_robot_pose')
+        self.pose_request = GetRobotPose.Request()
 
         # construct the action server
         self._action_server = ActionServer(
@@ -90,18 +102,15 @@ class MotionActionServer(Node):
             self.execute_callback)
 
 
-    def robot_pose_callback(self, msg):
-        self.robot_pose = msg
-        # self.get_logger().info(str(type(msg)))
-
-
     def execute_callback(self, goal_handle):
         """
         Callback of action server with goal_handle.request having input to action server
         """
 
+        # replace security_route with goal_handle.request.secs
+        # security_route = [[-0.7, 0.4, 0]]
+        # route = PoseStamped[]
         route = goal_handle.request.goals
-        feedback_msg = Navigate.Feedback()
 
         #NOTE: Set init pose skipped for now because we may use 3D localization
         # initial_pose = PoseStamped()
@@ -131,23 +140,22 @@ class MotionActionServer(Node):
 
         self.navigator.goThroughPoses(route_poses)
 
+        # Print ETA for the demonstration
         i = 0
         while not self.navigator.isTaskComplete():
             i = i + 1
             feedback = self.navigator.getFeedback()
             if feedback and i % 5 == 0:
-                self.get_logger().debug('Estimated time to complete current route: ' + '{0:.0f}'.format(
+                self.get_logger().info('Estimated time to complete current route: ' + '{0:.0f}'.format(
                     Duration.from_msg(feedback.estimated_time_remaining).nanoseconds / 1e9)
                     + ' seconds.')
-                # publish feedback
-                feedback_msg.pose_feedback = self.robot_pose
-                goal_handle.publish_feedback(feedback_msg)
 
                 # Some failure mode, must stop since the robot is clearly stuck
                 if Duration.from_msg(feedback.navigation_time) > Duration(seconds=180.0):
-                    self.get_logger().warning('Navigation has exceeded timeout of 180s, canceling the request.')
+                    self.get_logger().info('Navigation has exceeded timeout of 180s, canceling the request.')
                     self.navigator.cancelTask()
 
+        time.sleep(2)
         result = self.navigator.getResult()
         self.get_logger().info(str(result))
 
