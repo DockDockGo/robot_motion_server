@@ -32,6 +32,7 @@ def generate_launch_description():
         executable='robot_docking_undocking_server_node', # NOTE: Executable name defined in setup.py
         name='robot_docking_undocking_server_node',
         output='screen',
+        parameters=[{'namespace_param': namespace}]
     )
 
     # Launch the MotionActionServer node with arguments
@@ -40,6 +41,7 @@ def generate_launch_description():
         executable='robot_motion_server_node', # NOTE: Executable name defined in setup.py
         name='robot_motion_server_node',
         output='screen',
+        parameters=[{'namespace_param': namespace}]
     )
 
     ld.add_action(Dock_Undock)

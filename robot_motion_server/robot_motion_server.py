@@ -22,13 +22,21 @@ class DockingUndockingActionServer(Node):
         super().__init__('docking_undocking_action_server')
         self.get_logger().info("Starting Docking Undocking Action Server")
 
+        self.declare_parameter('namespace_param', '/robot1')
+        robot_namespace = self.get_parameter('namespace_param').get_parameter_value().string_value
+        self.get_logger().info(f"namespace is {robot_namespace}")
+
+        action_server_name = robot_namespace + "/DockUndock"
+        publisher_topic = robot_namespace + "/cmd_vel"
+        self.get_logger().info(f"cmd vel topic is {publisher_topic}")
+
         # construct the action server
         self._action_server = ActionServer(
             self,
             DockUndock,
-            'DockUndock',
+            action_server_name,
             self.execute_callback)
-        self.publisher_ = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.publisher_ = self.create_publisher(Twist, publisher_topic, 10)
 
 
     def execute_callback(self, goal_handle):
@@ -70,14 +78,22 @@ class MotionActionServer(Node):
         super().__init__('motion_action_server')
         self.get_logger().info("Starting Motion Action Server")
 
-        self.navigator = custom_nav.CustomNavigator()
+        self.declare_parameter('namespace_param', '/robot1')
+        robot_namespace = self.get_parameter('namespace_param').get_parameter_value().string_value
+        self.get_logger().info(f"namespace is {robot_namespace}")
+
+        action_server_name = robot_namespace + "/Navigate"
+        subscriber_topic = robot_namespace + "/map_pose"
+        self.get_logger().info(f"map pose subsriber topic is {subscriber_topic}")
+
+        self.navigator = custom_nav.CustomNavigator(namespace=robot_namespace)
         self.navigator_final_result = None
         self.robot_pose = None
 
         # Pose Subscribers
         self.pose_subscription = self.create_subscription(
             PoseWithCovarianceStamped,
-            '/map_pose',  # Topic on which pose is being relayed
+            subscriber_topic,  # Topic on which pose is being relayed
             self.robot_pose_callback,
             10  # Adjust the queue size as needed
         )
@@ -86,7 +102,7 @@ class MotionActionServer(Node):
         self._action_server = ActionServer(
             self,
             Navigate,
-            'Navigate',
+            action_server_name,
             self.execute_callback)
 
 
