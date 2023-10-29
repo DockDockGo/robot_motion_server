@@ -65,32 +65,32 @@ class CustomNavigator(Node):
         self.initial_pose_received = False
         self.nav_through_poses_client = ActionClient(self,
                                                      NavigateThroughPoses,
-                                                     (namespace + "/" + 'navigate_through_poses'))
-        self.nav_to_pose_client = ActionClient(self, NavigateToPose, (namespace + "/" + 'navigate_to_pose'))
-        self.follow_waypoints_client = ActionClient(self, FollowWaypoints, (namespace + "/" + 'follow_waypoints'))
-        self.follow_path_client = ActionClient(self, FollowPath, (namespace + "/" + 'follow_path'))
+                                                     ("/"  + namespace + "/" + 'navigate_through_poses'))
+        self.nav_to_pose_client = ActionClient(self, NavigateToPose, ("/"  + namespace + "/" + 'navigate_to_pose'))
+        self.follow_waypoints_client = ActionClient(self, FollowWaypoints, ("/"  + namespace + "/" + 'follow_waypoints'))
+        self.follow_path_client = ActionClient(self, FollowPath, ("/"  + namespace + "/" + 'follow_path'))
         self.compute_path_to_pose_client = ActionClient(self, ComputePathToPose,
-                                                        (namespace + "/" + 'compute_path_to_pose'))
+                                                        ("/"  + namespace + "/" + 'compute_path_to_pose'))
         self.compute_path_through_poses_client = ActionClient(self, ComputePathThroughPoses,
-                                                              (namespace + "/" + 'compute_path_through_poses'))
-        self.smoother_client = ActionClient(self, SmoothPath, (namespace + "/" + 'smooth_path'))
-        self.spin_client = ActionClient(self, Spin, (namespace + "/" + 'spin'))
-        self.backup_client = ActionClient(self, BackUp, (namespace + "/" + 'backup'))
-        self.assisted_teleop_client = ActionClient(self, AssistedTeleop, (namespace + "/" + 'assisted_teleop'))
+                                                              ("/"  + namespace + "/" + 'compute_path_through_poses'))
+        self.smoother_client = ActionClient(self, SmoothPath, ("/"  + namespace + "/" + 'smooth_path'))
+        self.spin_client = ActionClient(self, Spin, ("/"  + namespace + "/" + 'spin'))
+        self.backup_client = ActionClient(self, BackUp, ("/"  + namespace + "/" + 'backup'))
+        self.assisted_teleop_client = ActionClient(self, AssistedTeleop, ("/"  + namespace + "/" + 'assisted_teleop'))
         self.localization_pose_sub = self.create_subscription(PoseWithCovarianceStamped,
                                                               (namespace +'/map_pose'),
                                                               self._amclPoseCallback,
                                                               amcl_pose_qos)
         self.initial_pose_pub = self.create_publisher(PoseWithCovarianceStamped,
-                                                      (namespace + "/" + 'initialpose'),
+                                                      ("/"  + namespace + "/" + 'initialpose'),
                                                       10)
-        self.change_maps_srv = self.create_client(LoadMap, (namespace + '/map_server/load_map'))
+        self.change_maps_srv = self.create_client(LoadMap, ("/"  +  namespace + '/map_server/load_map'))
         self.clear_costmap_global_srv = self.create_client(
-            ClearEntireCostmap, (namespace + '/global_costmap/clear_entirely_global_costmap'))
+            ClearEntireCostmap, ("/"  +  namespace + '/global_costmap/clear_entirely_global_costmap'))
         self.clear_costmap_local_srv = self.create_client(
-            ClearEntireCostmap, (namespace + '/local_costmap/clear_entirely_local_costmap'))
-        self.get_costmap_global_srv = self.create_client(GetCostmap, (namespace + '/global_costmap/get_costmap'))
-        self.get_costmap_local_srv = self.create_client(GetCostmap, (namespace +'/local_costmap/get_costmap'))
+            ClearEntireCostmap, ("/"  +  namespace + '/local_costmap/clear_entirely_local_costmap'))
+        self.get_costmap_global_srv = self.create_client(GetCostmap, ("/" +  namespace + '/global_costmap/get_costmap'))
+        self.get_costmap_local_srv = self.create_client(GetCostmap, ("/" + namespace + '/local_costmap/get_costmap'))
 
     def destroyNode(self):
         self.destroy_node()
@@ -115,7 +115,7 @@ class CustomNavigator(Node):
 
     def goThroughPoses(self, poses, behavior_tree=''):
         """Send a `NavThroughPoses` action request."""
-        self.debug("Waiting for 'NavigateThroughPoses' action server")
+        self.info("Waiting for 'NavigateThroughPoses' action server")
         while not self.nav_through_poses_client.wait_for_server(timeout_sec=1.0):
             self.info("'NavigateThroughPoses' action server not available, waiting...")
 
@@ -124,11 +124,13 @@ class CustomNavigator(Node):
         goal_msg.behavior_tree = behavior_tree
 
         self.info(f'Navigating with {len(goal_msg.poses)} goals....')
+        self.info(str(goal_msg.poses))
         send_goal_future = self.nav_through_poses_client.send_goal_async(goal_msg,
                                                                          self._feedbackCallback)
         rclpy.spin_until_future_complete(self, send_goal_future)
+        self.info("Goal sent async!")
         self.goal_handle = send_goal_future.result()
-
+        self.info("Checking if accepted!")
         if not self.goal_handle.accepted:
             self.error(f'Goal with {len(poses)} poses was rejected!')
             return False
@@ -314,7 +316,7 @@ class CustomNavigator(Node):
         # self._waitForNodeToActivate(localizer)
         # if localizer == 'amcl':
         #     self._waitForInitialPose()
-        navigator = self.robot_namespace + "/" + "bt_navigator"
+        navigator = "/"+ self.robot_namespace + "/" + "bt_navigator"
         self._waitForNodeToActivate(navigator)
         self.info('Nav2 is ready for use!')
         return

@@ -22,7 +22,7 @@ class DockingUndockingActionServer(Node):
         super().__init__('docking_undocking_action_server')
         self.get_logger().info("Starting Docking Undocking Action Server")
 
-        self.declare_parameter('namespace_param', '/robot1')
+        self.declare_parameter('namespace_param', 'robot1')
         robot_namespace = self.get_parameter('namespace_param').get_parameter_value().string_value
         self.get_logger().info(f"namespace is {robot_namespace}")
 
@@ -78,7 +78,7 @@ class MotionActionServer(Node):
         super().__init__('motion_action_server')
         self.get_logger().info("Starting Motion Action Server")
 
-        self.declare_parameter('namespace_param', '/robot1')
+        self.declare_parameter('namespace_param', 'robot1')
         robot_namespace = self.get_parameter('namespace_param').get_parameter_value().string_value
         self.get_logger().info(f"namespace is {robot_namespace}")
 
