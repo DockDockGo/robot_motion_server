@@ -12,6 +12,7 @@ from copy import deepcopy
 from rclpy.duration import Duration
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 import robot_motion_server.custom_navigator as custom_nav
+import robot_motion_server.custom_navigator_multi_robot as custom_nav_multi_robot
 import math
 import time
 
@@ -22,12 +23,17 @@ class DockingUndockingActionServer(Node):
         super().__init__('docking_undocking_action_server')
         self.get_logger().info("Starting Docking Undocking Action Server")
 
-        self.declare_parameter('namespace_param', 'robot1')
+        self.declare_parameter('namespace_param', '')
         robot_namespace = self.get_parameter('namespace_param').get_parameter_value().string_value
         self.get_logger().info(f"namespace is {robot_namespace}")
 
-        action_server_name = robot_namespace + "/DockUndock"
-        publisher_topic = robot_namespace + "/cmd_vel"
+        if robot_namespace != '':
+            action_server_name = "DockUndock"
+            publisher_topic = "/cmd_vel"
+        else:
+            action_server_name = robot_namespace + "/" + "DockUndock"
+            publisher_topic = robot_namespace + "/cmd_vel"
+
         self.get_logger().info(f"cmd vel topic is {publisher_topic}")
 
         # construct the action server
@@ -78,15 +84,20 @@ class MotionActionServer(Node):
         super().__init__('motion_action_server')
         self.get_logger().info("Starting Motion Action Server")
 
-        self.declare_parameter('namespace_param', 'robot1')
+        self.declare_parameter('namespace_param', '')
         robot_namespace = self.get_parameter('namespace_param').get_parameter_value().string_value
         self.get_logger().info(f"namespace is {robot_namespace}")
 
-        action_server_name = robot_namespace + "/Navigate"
+        if robot_namespace != '':
+            action_server_name = robot_namespace + "/" + "Navigate"
+            self.navigator = custom_nav_multi_robot.CustomNavigator(namespace=robot_namespace)
+        else:
+            action_server_name = "Navigate"
+            self.navigator = custom_nav.CustomNavigator()
+
         subscriber_topic = robot_namespace + "/map_pose"
         self.get_logger().info(f"map pose subsriber topic is {subscriber_topic}")
 
-        self.navigator = custom_nav.CustomNavigator(namespace=robot_namespace)
         self.navigator_final_result = None
         self.robot_pose = None
 

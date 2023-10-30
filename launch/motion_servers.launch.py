@@ -8,7 +8,7 @@ def generate_launch_description():
 
     #### Define the params ####
 
-    use_namespace = LaunchConfiguration('use_namespace', default=True)
+    use_namespace = LaunchConfiguration('use_namespace', default=False)
     namespace = LaunchConfiguration('namespace', default="robot1")
 
     if not use_namespace:
