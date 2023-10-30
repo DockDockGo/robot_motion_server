@@ -92,11 +92,12 @@ class MotionActionServer(Node):
             action_server_name = robot_namespace + "/" + "Navigate"
             prefixed_namespace = "/" + robot_namespace #! kept for debugging
             self.navigator = custom_nav_multi_robot.CustomNavigator(namespace=robot_namespace)
+            subscriber_topic = "/" + robot_namespace + "/map_pose"
         else:
             action_server_name = "Navigate"
             self.navigator = custom_nav.CustomNavigator()
+            subscriber_topic = "/map_pose"
 
-        subscriber_topic = "/" + robot_namespace + "/map_pose"
         self.get_logger().info(f"map pose subsriber topic is {subscriber_topic}")
 
         self.navigator_final_result = None
@@ -174,9 +175,9 @@ class MotionActionServer(Node):
             pose.pose.orientation.w = pt.pose.orientation.w
             route_poses.append(deepcopy(pose))
 
-        #! FOR DEBUGGING
-        #  self.get_logger().info(f"THE NUMBER OF WAYPOINTS GIVEN TO GO THROUGH POSES IS {str(len(route_poses))}")
-        # self.navigator.goThroughPoses(route_poses)
+
+        self.get_logger().info(f"THE NUMBER OF WAYPOINTS GIVEN TO GO THROUGH POSES IS {str(len(route_poses))}")
+        self.navigator.goThroughPoses(route_poses)
 
         i = 0
         while not self.navigator.isTaskComplete():
