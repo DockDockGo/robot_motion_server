@@ -28,11 +28,11 @@ class DockingUndockingActionServer(Node):
         self.get_logger().info(f"namespace is {robot_namespace}")
 
         if robot_namespace != '':
+            action_server_name = robot_namespace + "/" + "DockUndock"
+            publisher_topic = "/" + robot_namespace + "/cmd_vel"
+        else:
             action_server_name = "DockUndock"
             publisher_topic = "/cmd_vel"
-        else:
-            action_server_name = robot_namespace + "/" + "DockUndock"
-            publisher_topic = robot_namespace + "/cmd_vel"
 
         self.get_logger().info(f"cmd vel topic is {publisher_topic}")
 
@@ -90,12 +90,13 @@ class MotionActionServer(Node):
 
         if robot_namespace != '':
             action_server_name = robot_namespace + "/" + "Navigate"
+            prefixed_namespace = "/" + robot_namespace #! kept for debugging
             self.navigator = custom_nav_multi_robot.CustomNavigator(namespace=robot_namespace)
         else:
             action_server_name = "Navigate"
             self.navigator = custom_nav.CustomNavigator()
 
-        subscriber_topic = robot_namespace + "/map_pose"
+        subscriber_topic = "/" + robot_namespace + "/map_pose"
         self.get_logger().info(f"map pose subsriber topic is {subscriber_topic}")
 
         self.navigator_final_result = None
@@ -143,7 +144,22 @@ class MotionActionServer(Node):
         # Wait for navigation to activate fully
         self.navigator.waitUntilNav2Active()
 
-        #! Potentially skip this unnecessary parsing of route -> route_poses
+        #! FOR DEBUGGING
+        # route_poses = []
+        # route = [(15.0, -2.0), (15.0, 2.0)]
+        # pose = PoseStamped()
+        # pose.header.frame_id = 'map'
+        # pose.header.stamp = self.navigator.get_clock().now().to_msg()
+        # for pt in route:
+        #     pose.pose.position.x = pt[0]
+        #     pose.pose.position.y = pt[1]
+        #     self.get_logger().info(f"goal pos x = {pose.pose.position.x}")
+        #     self.get_logger().info(f"goal pos y = {pose.pose.position.y}")
+        #     pose.pose.position.z = 0.0
+        #     pose.pose.orientation.z = 0.0
+        #     pose.pose.orientation.w = 1.0
+        #     route_poses.append(deepcopy(pose))
+
         route_poses = []
         pose = PoseStamped()
         pose.header.frame_id = 'map'
@@ -151,12 +167,16 @@ class MotionActionServer(Node):
         for pt in route:
             pose.pose.position.x = pt.pose.position.x
             pose.pose.position.y = pt.pose.position.y
+            self.get_logger().info(f"goal pos x = {pt.pose.position.x}")
+            self.get_logger().info(f"goal pos y = {pt.pose.position.y}")
             pose.pose.position.z = 0.0
             pose.pose.orientation.z = pt.pose.orientation.z
             pose.pose.orientation.w = pt.pose.orientation.w
             route_poses.append(deepcopy(pose))
 
-        self.navigator.goThroughPoses(route_poses)
+        #! FOR DEBUGGING
+        #  self.get_logger().info(f"THE NUMBER OF WAYPOINTS GIVEN TO GO THROUGH POSES IS {str(len(route_poses))}")
+        # self.navigator.goThroughPoses(route_poses)
 
         i = 0
         while not self.navigator.isTaskComplete():
