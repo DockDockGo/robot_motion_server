@@ -15,10 +15,14 @@ from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 import robot_motion_server.custom_navigator as custom_nav
 import robot_motion_server.custom_navigator_multi_robot as custom_nav_multi_robot
 from rclpy.executors import MultiThreadedExecutor
-from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 import math
 import time
 from threading import Event
+import threading
+
+# Handling Sync and Async : https://discourse.ros.org/t/how-to-use-callback-groups-in-ros2/25255
+
 
 class DockingUndockingActionServer(Node):
 
@@ -72,6 +76,7 @@ class DockingUndockingActionServer(Node):
 
         msg.linear.x = 0.0
         self.publisher_.publish(msg)
+        self.get_logger().info("FINISHED DOCKING")
 
         result = DockUndock.Result()
         result.success = True
@@ -80,6 +85,8 @@ class DockingUndockingActionServer(Node):
 
         return result
 
+
+
 class MotionActionServer(Node):
 
     def __init__(self):
@@ -87,8 +94,6 @@ class MotionActionServer(Node):
         namespace = ""
         super().__init__('motion_action_server')
         self.get_logger().info("Starting Motion Action Server")
-        self.callback_group = ReentrantCallbackGroup()
-        self.action_complete = Event()
 
         self.declare_parameter('namespace_param', '')
         robot_namespace = self.get_parameter('namespace_param').get_parameter_value().string_value
@@ -115,7 +120,6 @@ class MotionActionServer(Node):
         while not self.ddg_waypoint_follower.wait_for_service(timeout_sec=5.0):
             self.get_logger().warn("DDG Waypoint Follower Service not available, waiting...")
 
-        self.timer = self.create_timer(1, self.timer_callback)
         self.distance_to_goal = None
 
         self.get_logger().info("DDG Waypoint Follower Service is now active")
@@ -124,12 +128,21 @@ class MotionActionServer(Node):
         self.robot_pose = None
         self.goal_pose = None
 
+        # Define callback groups to prevent deadlocks
+        # self.callback_group_1 = MutuallyExclusiveCallbackGroup()
+        # self.callback_group_2 = MutuallyExclusiveCallbackGroup()
+        # self.callback_group_3 = MutuallyExclusiveCallbackGroup()
+        # self.callback_group_4 = ReentrantCallbackGroup()
+        self.action_complete = Event()
+        self.action_complete.clear()
+
         # Pose Subscribers
         self.pose_subscription = self.create_subscription(
-            PoseWithCovarianceStamped,
-            subscriber_topic,  # Topic on which pose is being relayed
-            self.robot_pose_callback,
-            10  # Adjust the queue size as needed
+            msg_type=PoseWithCovarianceStamped,
+            topic=subscriber_topic,  # Topic on which pose is being relayed
+            callback=self.robot_pose_callback,
+            qos_profile=10,  # Adjust the queue size as needed
+            # callback_group=self.callback_group_4
         )
 
         # construct the action server
@@ -137,8 +150,28 @@ class MotionActionServer(Node):
             self,
             Navigate,
             action_server_name,
-            self.execute_callback,
-            callback_group=self.callback_group)
+            self.execute_callback,)
+            # callback_group=self.callback_group_4)
+
+    #     # Create a simple timer callback within a different callback group
+    #     ###! Method 1
+    #     self.timer = self.create_timer(0.5, callback_group=self.callback_group_3, callback=self.simple_timer_callback)
+
+    #     ###! Method 2
+    #     # Create a thread for the timer callback
+    #     self.timer_thread = threading.Thread(target=self.timer_callback)
+    #     self.timer_thread.daemon = True  # Allow the program to exit even if the thread is still running
+
+    #     # Add an event to signal when the timer callback should exit
+    #     self.shutdown_event = threading.Event()
+
+    #     # Start the timer thread
+    #     self.timer_thread.start()
+    #     self.lock = threading.Lock()
+
+    # def stop_timer_thread(self):
+    #     self.shutdown_event.set()
+    #     self.timer_thread.join()
 
 
     def robot_pose_callback(self, msg):
@@ -169,11 +202,27 @@ class MotionActionServer(Node):
         distance = math.sqrt(dx**2 + dy**2 + dz**2)
         self.get_logger().info(f"distance to goal is {distance}")
 
-        return distance
+        self.distance_to_goal = distance
+
 
     def timer_callback(self):
-        self.distance_to_goal = self.euclidean_distance()
+        timer_period = 1.0  # Adjust as needed
+
+        while not self.shutdown_event.is_set():
+            time.sleep(timer_period)
+            # Your timer callback logic here
+            self.euclidean_distance()
+            self.get_logger().info(f"distance to goal is {self.distance_to_goal}")
+            if self.distance_to_goal is not None and self.distance_to_goal < 0.2:
+                self.get_logger().info("Setting navigation to COMPLETE!")
+                self.action_complete.set()
+
+
+    def simple_timer_callback(self):
+        self.euclidean_distance()
+        self.get_logger().info(f"distance to goal is {self.distance_to_goal}")
         if self.distance_to_goal is not None and self.distance_to_goal < 0.2:
+            self.get_logger().info("Setting navigation to COMPLETE!")
             self.action_complete.set()
 
 
@@ -181,7 +230,6 @@ class MotionActionServer(Node):
         """
         Callback of action server with goal_handle.request having input to action server
         """
-        self.action_complete.clear()
         route = goal_handle.request.goals
         self.goal_pose = route[-1]
         feedback_msg = Navigate.Feedback()
@@ -190,96 +238,31 @@ class MotionActionServer(Node):
         self.get_logger().info(f"Goals to waypoint follower are {str(routh_path)}")
 
         self.ddg_waypoint_follower_path.waypoints = routh_path
+        self.action_complete.clear() # clear the thread stopping Event
         self.get_logger().info("Going to send goal to waypoint follower")
         waypoint_future = self.send_goal_to_waypoint_follower(routh_path)
 
-        if waypoint_future.done(): #! .done() should be returned only after completion, this is for debugging only
-            self.get_logger().info(f"goal accepted \n {waypoint_future.result().success}")
+        # if waypoint_future.done(): #! .done() should be returned only after completion, this is for debugging only
+        #     self.get_logger().info(f"goal accepted \n {waypoint_future.result().success}")
 
-        self.action_complete.wait()
-
-        motion_server_result = Navigate.Result()
-        if waypoint_future.result() is not None:
-            self.get_logger().info(f"outcome is {waypoint_future.result()}")
-            motion_server_result.success = True
-        else:
-            motion_server_result.success = False
-
+        # self.action_complete.wait() # stop thread until event state changes
         goal_handle.succeed()
-        return motion_server_result
 
-        #NOTE: Set init pose skipped for now because we may use 3D localization
-        # initial_pose = PoseStamped()
-        # initial_pose.header.frame_id = 'map'
-        # initial_pose.header.stamp = navigator.get_clock().now().to_msg()
-        # initial_pose.pose.position.x = 3.45
-        # initial_pose.pose.position.y = 2.15
-        # initial_pose.pose.orientation.z = 1.0
-        # initial_pose.pose.orientation.w = 0.0
-        # navigator.setInitialPose(initial_pose)
-
-        # Wait for navigation to activate fully
-        # self.navigator.waitUntilNav2Active()
-
-        # route_poses = []
-        # pose = PoseStamped()
-        # pose.header.frame_id = 'map'
-        # pose.header.stamp = self.navigator.get_clock().now().to_msg()
-        # for pt in route:
-        #     pose.pose.position.x = pt.pose.position.x
-        #     pose.pose.position.y = pt.pose.position.y
-        #     self.get_logger().info(f"goal pos x = {pt.pose.position.x}")
-        #     self.get_logger().info(f"goal pos y = {pt.pose.position.y}")
-        #     pose.pose.position.z = 0.0
-        #     pose.pose.orientation.z = pt.pose.orientation.z
-        #     pose.pose.orientation.w = pt.pose.orientation.w
-        #     route_poses.append(deepcopy(pose))
-
-
-        # self.get_logger().info(f"THE NUMBER OF WAYPOINTS GIVEN TO GO THROUGH POSES IS {str(len(route_poses))}")
-        # self.navigator.goThroughPoses(route_poses)
-
-        # i = 0
-        # while not self.navigator.isTaskComplete():
-        #     i = i + 1
-        #     feedback = self.navigator.getFeedback()
-        #     if feedback and i % 5 == 0:
-        #         self.get_logger().debug('Estimated time to complete current route: ' + '{0:.0f}'.format(
-        #             Duration.from_msg(feedback.estimated_time_remaining).nanoseconds / 1e9)
-        #             + ' seconds.')
-        #         # publish feedback
-        #         feedback_msg.pose_feedback = self.robot_pose
-        #         goal_handle.publish_feedback(feedback_msg)
-
-        #         # Some failure mode, must stop since the robot is clearly stuck
-        #         if Duration.from_msg(feedback.navigation_time) > Duration(seconds=180.0):
-        #             self.get_logger().warning('Navigation has exceeded timeout of 180s, canceling the request.')
-        #             self.navigator.cancelTask()
-
-        # result = self.navigator.getResult()
-        # self.get_logger().info(str(result))
-
-        # # ! Some issue with trying to check just result status
-        # if str(result) == "TaskResult.SUCCEEDED":
-        #     self.get_logger().info('Route complete!')
-        #     self.navigator_final_result = "success"
-        # elif str(result) == "TaskResult.CANCELED":
-        #     self.get_logger().info('route was canceled, exiting.')
-        #     self.navigator_final_result = "fail"
-        # elif str(result) == "TaskResult.FAILED":
-        #     self.get_logger().info('route failed!')
-        #     self.navigator_final_result = "fail"
-
-
-        # motion_server_result = Navigate.Result()
-        # if self.navigator_final_result == "success":
+        # self.navigator_final_result = waypoint_future.result()
+        # if waypoint_future.result() is not None:
+        #     self.get_logger().info(f"Motion Server outcome is {waypoint_future.result()}")
+        #     motion_server_result = Navigate.Result()
         #     motion_server_result.success = True
         # else:
+        #     motion_server_result = Navigate.Result()
         #     motion_server_result.success = False
+        #     pass
 
-        # goal_handle.succeed()
-
-        # return motion_server_result
+        motion_server_result = Navigate.Result()
+        motion_server_result.success = False
+        self.get_logger().info(f"RETURNING MOTION SERVER RESULT {waypoint_future.result()}")
+        # motion_server_result.success = False #! TEMPORARY
+        return motion_server_result
 
 
 def MotionServer(args=None):
@@ -288,9 +271,13 @@ def MotionServer(args=None):
 
     # start the MotionActionServer
     # robot_motion_action_server = MotionActionServer(nav2_client, get_pose_client)
-    executor = MultiThreadedExecutor()
+    # multi_executor = MultiThreadedExecutor()
     robot_motion_action_server = MotionActionServer()
-    rclpy.spin(robot_motion_action_server, executor)
+    # rclpy.spin(robot_motion_action_server, executor=multi_executor)
+    rclpy.spin(robot_motion_action_server)
+    # robot_motion_action_server.stop_timer_thread()
+    robot_motion_action_server.destroy_node()
+    rclpy.shutdown()
 
 
 def DockUndockServer(args=None):
@@ -300,6 +287,8 @@ def DockUndockServer(args=None):
     # robot_motion_action_server = MotionActionServer(nav2_client, get_pose_client)
     robot_dockundock_action_server = DockingUndockingActionServer()
     rclpy.spin(robot_dockundock_action_server)
+    robot_dockundock_action_server.destroy_node()
+    rclpy.shutdown()
 
 
 if __name__ == '__main__':
