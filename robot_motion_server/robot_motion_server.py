@@ -114,6 +114,7 @@ class MotionActionServer(Node):
         self.get_logger().info(f"DDG Waypoint follower Client name is {waypoint_follower_service_name}")
 
         self.callback_group = ReentrantCallbackGroup()
+        self.motion_server_goal_handle = None
 
         self.ddg_waypoint_follower = self.create_client(srv_type=DdgExecuteWaypoints,
                                                         srv_name=waypoint_follower_service_name,
@@ -149,25 +150,8 @@ class MotionActionServer(Node):
             self.execute_callback,
             callback_group=self.callback_group)
 
-    #     # Create a simple timer callback within a different callback group
-    #     ###! Method 1
+        # Create a simple timer callback within a different callback group
         self.timer = self.create_timer(0.5, callback_group=self.callback_group, callback=self.simple_timer_callback)
-
-    #     ###! Method 2
-    #     # Create a thread for the timer callback
-    #     self.timer_thread = threading.Thread(target=self.timer_callback)
-    #     self.timer_thread.daemon = True  # Allow the program to exit even if the thread is still running
-
-    #     # Add an event to signal when the timer callback should exit
-    #     self.shutdown_event = threading.Event()
-
-    #     # Start the timer thread
-    #     self.timer_thread.start()
-    #     self.lock = threading.Lock()
-
-    # def stop_timer_thread(self):
-    #     self.shutdown_event.set()
-    #     self.timer_thread.join()
 
 
     def robot_pose_callback(self, msg):
@@ -195,22 +179,16 @@ class MotionActionServer(Node):
 
         self.distance_to_goal = distance
 
-
-    # def timer_callback(self):
-    #     timer_period = 1.0  # Adjust as needed
-
-    #     while not self.shutdown_event.is_set():
-    #         time.sleep(timer_period)
-    #         # Your timer callback logic here
-    #         self.euclidean_distance()
-    #         self.get_logger().info(f"distance to goal is {self.distance_to_goal}")
-    #         if self.distance_to_goal is not None and self.distance_to_goal < 0.2:
-    #             self.get_logger().info("Setting navigation to COMPLETE!")
-    #             self.action_complete.set()
-
-
     def simple_timer_callback(self):
+        # check if robot within goal radius
         self.euclidean_distance()
+
+        # Publish Feedback:
+        if self.distance_to_goal is not None:
+            feedback_msg = Navigate.Feedback()
+            feedback_msg.pose_feedback = self.robot_pose
+            self.motion_server_goal_handle.publish_feedback(feedback_msg)
+
         # self.get_logger().info(f"distance to goal is {self.distance_to_goal}")
         if self.distance_to_goal is not None and self.distance_to_goal < 0.2:
             # self.get_logger().info("Setting navigation to COMPLETE!")
@@ -227,9 +205,9 @@ class MotionActionServer(Node):
         """
         Callback of action server with goal_handle.request having input to action server
         """
+        self.motion_server_goal_handle = goal_handle
         route = goal_handle.request.goals
         self.goal_pose = route[-1]
-        feedback_msg = Navigate.Feedback()
         routh_path = Path()
         routh_path.poses = route
         self.get_logger().info(f"Goals to waypoint follower are {str(routh_path)}")
