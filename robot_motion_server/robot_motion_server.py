@@ -19,6 +19,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallb
 import math
 import time
 from threading import Event
+from tf_transformations import euler_from_quaternion
 
 # Handling Sync and Async : https://discourse.ros.org/t/how-to-use-callback-groups-in-ros2/25255
 #                         : https://gist.github.com/driftregion/14f6da05a71a57ef0804b68e17b06de5
@@ -36,7 +37,7 @@ class DockingUndockingActionServer(Node):
         self.get_logger().info(f"namespace is {robot_namespace}")
 
         if robot_namespace != '':
-            action_server_name = robot_namespace + "/" + "DockUndock"
+            action_server_name = "/" + robot_namespace + "/" + "DockUndock"
             publisher_topic = "/" + robot_namespace + "/cmd_vel"
         else:
             action_server_name = "DockUndock"
@@ -99,7 +100,7 @@ class MotionActionServer(Node):
         self.get_logger().info(f"namespace is {robot_namespace}")
 
         if robot_namespace != '':
-            action_server_name = robot_namespace + "/" + "Navigate"
+            action_server_name = "/" + robot_namespace + "/" + "Navigate"
             self.navigator = custom_nav_multi_robot.CustomNavigator(namespace=robot_namespace)
             subscriber_topic = "/" + robot_namespace + "/map_pose"
             waypoint_follower_service_name = "/" + robot_namespace  + "/" + "ddg_navigate_through_poses"
@@ -123,6 +124,7 @@ class MotionActionServer(Node):
             self.get_logger().warn("DDG Waypoint Follower Service not available, waiting...")
 
         self.distance_to_goal = None
+        self.orientation_difference = None
 
         self.get_logger().info("DDG Waypoint Follower Service is now active")
         self.ddg_waypoint_follower_path = DdgExecuteWaypoints.Request()
@@ -156,24 +158,41 @@ class MotionActionServer(Node):
     def robot_pose_callback(self, msg):
         self.robot_pose = msg
 
+    def wrap_around_pi(self, x):
+        x = abs(x)
+        pi = 3.1415926
+        return abs((x + 2*pi) % pi - pi)
+
+    def radians_to_degrees(self, angle):
+        return angle * 180.0 / 3.1415926
+
     def euclidean_distance(self):
         pose1 = self.goal_pose
         pose2 = self.robot_pose
         # Extract the positions from the poses
         if isinstance(pose1, PoseStamped) and isinstance(pose2, PoseWithCovarianceStamped):
-            pos1 = pose1.pose.position
-            pos2 = pose2.pose.pose.position
+            pos1 = pose1.pose
+            pos2 = pose2.pose.pose
         elif pose1 is None: # in Navigation State
             return None
         else:
             raise ValueError("Input pose1 is not a valid type (Pose or PoseWithCovariance)")
 
         # Calculate the Euclidean distance
-        dx = pos1.x - pos2.x
-        dy = pos1.y - pos2.y
-        dz = pos1.z - pos2.z
-        distance = math.sqrt(dx**2 + dy**2 + dz**2)
+        dx = pos1.position.x - pos2.position.x
+        dy = pos1.position.y - pos2.position.y
+        dz = pos1.position.z - pos2.position.z
 
+        # Convert orientations to Euler angles (roll, pitch, and yaw)
+        euler_angles1 = euler_from_quaternion(pos1.orientation)
+        euler_angles2 = euler_from_quaternion(pos2.orientation)
+
+        # Calculate the orientation difference
+        self.orientation_difference = self.radians_to_degrees(self.wrap_around_pi(
+            euler_angles2[2] - euler_angles1[2]
+        ))
+
+        distance = math.sqrt(dx**2 + dy**2 + dz**2)
         self.distance_to_goal = distance
 
     def simple_timer_callback(self):
@@ -186,7 +205,9 @@ class MotionActionServer(Node):
             feedback_msg.pose_feedback = self.robot_pose
             self.motion_server_goal_handle.publish_feedback(feedback_msg)
 
-        if self.distance_to_goal is not None and self.distance_to_goal < 0.2:
+        # distance in metres and orientation in degrees
+        if self.distance_to_goal is not None and self.distance_to_goal < 0.1 \
+            and self.orientation_difference is not None and self.orientation_difference < 5:
             # self.get_logger().info("Setting navigation to COMPLETE!")
             self.navigator_final_success = True
             self.action_complete.set()
