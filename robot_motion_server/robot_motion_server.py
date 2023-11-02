@@ -90,7 +90,6 @@ class DockingUndockingActionServer(Node):
 class MotionActionServer(Node):
 
     def __init__(self):
-        #! TODO: Add namespace
         namespace = ""
         super().__init__('motion_action_server')
         self.get_logger().info("Starting Motion Action Server")
@@ -101,7 +100,6 @@ class MotionActionServer(Node):
 
         if robot_namespace != '':
             action_server_name = robot_namespace + "/" + "Navigate"
-            prefixed_namespace = "/" + robot_namespace #! kept for debugging
             self.navigator = custom_nav_multi_robot.CustomNavigator(namespace=robot_namespace)
             subscriber_topic = "/" + robot_namespace + "/map_pose"
             waypoint_follower_service_name = "/" + robot_namespace  + "/" + "ddg_navigate_through_poses"
@@ -157,7 +155,6 @@ class MotionActionServer(Node):
 
     def robot_pose_callback(self, msg):
         self.robot_pose = msg
-        # self.get_logger().info(f"Got Robot Pose")
 
     def euclidean_distance(self):
         pose1 = self.goal_pose
@@ -176,7 +173,6 @@ class MotionActionServer(Node):
         dy = pos1.y - pos2.y
         dz = pos1.z - pos2.z
         distance = math.sqrt(dx**2 + dy**2 + dz**2)
-        # self.get_logger().info(f"distance to goal is {distance}")
 
         self.distance_to_goal = distance
 
@@ -190,7 +186,6 @@ class MotionActionServer(Node):
             feedback_msg.pose_feedback = self.robot_pose
             self.motion_server_goal_handle.publish_feedback(feedback_msg)
 
-        # self.get_logger().info(f"distance to goal is {self.distance_to_goal}")
         if self.distance_to_goal is not None and self.distance_to_goal < 0.2:
             # self.get_logger().info("Setting navigation to COMPLETE!")
             self.navigator_final_success = True
