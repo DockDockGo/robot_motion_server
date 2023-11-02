@@ -19,7 +19,6 @@ from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallb
 import math
 import time
 from threading import Event
-import threading
 
 # Handling Sync and Async : https://discourse.ros.org/t/how-to-use-callback-groups-in-ros2/25255
 
@@ -114,8 +113,11 @@ class MotionActionServer(Node):
         self.get_logger().info(f"map pose subsriber topic is {subscriber_topic}")
         self.get_logger().info(f"DDG Waypoint follower Client name is {waypoint_follower_service_name}")
 
+        self.callback_group = ReentrantCallbackGroup()
+
         self.ddg_waypoint_follower = self.create_client(srv_type=DdgExecuteWaypoints,
-                                                        srv_name=waypoint_follower_service_name)
+                                                        srv_name=waypoint_follower_service_name,
+                                                        callback_group=self.callback_group)
 
         while not self.ddg_waypoint_follower.wait_for_service(timeout_sec=5.0):
             self.get_logger().warn("DDG Waypoint Follower Service not available, waiting...")
@@ -124,15 +126,10 @@ class MotionActionServer(Node):
 
         self.get_logger().info("DDG Waypoint Follower Service is now active")
         self.ddg_waypoint_follower_path = DdgExecuteWaypoints.Request()
-        self.navigator_final_result = None
+        self.navigator_final_success = False
         self.robot_pose = None
         self.goal_pose = None
 
-        # Define callback groups to prevent deadlocks
-        # self.callback_group_1 = MutuallyExclusiveCallbackGroup()
-        # self.callback_group_2 = MutuallyExclusiveCallbackGroup()
-        # self.callback_group_3 = MutuallyExclusiveCallbackGroup()
-        # self.callback_group_4 = ReentrantCallbackGroup()
         self.action_complete = Event()
         self.action_complete.clear()
 
@@ -142,7 +139,6 @@ class MotionActionServer(Node):
             topic=subscriber_topic,  # Topic on which pose is being relayed
             callback=self.robot_pose_callback,
             qos_profile=10,  # Adjust the queue size as needed
-            # callback_group=self.callback_group_4
         )
 
         # construct the action server
@@ -150,12 +146,12 @@ class MotionActionServer(Node):
             self,
             Navigate,
             action_server_name,
-            self.execute_callback,)
-            # callback_group=self.callback_group_4)
+            self.execute_callback,
+            callback_group=self.callback_group)
 
     #     # Create a simple timer callback within a different callback group
     #     ###! Method 1
-    #     self.timer = self.create_timer(0.5, callback_group=self.callback_group_3, callback=self.simple_timer_callback)
+        self.timer = self.create_timer(0.5, callback_group=self.callback_group, callback=self.simple_timer_callback)
 
     #     ###! Method 2
     #     # Create a thread for the timer callback
@@ -176,12 +172,7 @@ class MotionActionServer(Node):
 
     def robot_pose_callback(self, msg):
         self.robot_pose = msg
-        # self.get_logger().info(str(type(msg)))
-
-    def send_goal_to_waypoint_follower(self, goal):
-        waypoint_future = self.ddg_waypoint_follower.call_async(self.ddg_waypoint_follower_path)
-        rclpy.spin_until_future_complete(self, waypoint_future)
-        return waypoint_future
+        # self.get_logger().info(f"Got Robot Pose")
 
     def euclidean_distance(self):
         pose1 = self.goal_pose
@@ -200,30 +191,36 @@ class MotionActionServer(Node):
         dy = pos1.y - pos2.y
         dz = pos1.z - pos2.z
         distance = math.sqrt(dx**2 + dy**2 + dz**2)
-        self.get_logger().info(f"distance to goal is {distance}")
+        # self.get_logger().info(f"distance to goal is {distance}")
 
         self.distance_to_goal = distance
 
 
-    def timer_callback(self):
-        timer_period = 1.0  # Adjust as needed
+    # def timer_callback(self):
+    #     timer_period = 1.0  # Adjust as needed
 
-        while not self.shutdown_event.is_set():
-            time.sleep(timer_period)
-            # Your timer callback logic here
-            self.euclidean_distance()
-            self.get_logger().info(f"distance to goal is {self.distance_to_goal}")
-            if self.distance_to_goal is not None and self.distance_to_goal < 0.2:
-                self.get_logger().info("Setting navigation to COMPLETE!")
-                self.action_complete.set()
+    #     while not self.shutdown_event.is_set():
+    #         time.sleep(timer_period)
+    #         # Your timer callback logic here
+    #         self.euclidean_distance()
+    #         self.get_logger().info(f"distance to goal is {self.distance_to_goal}")
+    #         if self.distance_to_goal is not None and self.distance_to_goal < 0.2:
+    #             self.get_logger().info("Setting navigation to COMPLETE!")
+    #             self.action_complete.set()
 
 
     def simple_timer_callback(self):
         self.euclidean_distance()
-        self.get_logger().info(f"distance to goal is {self.distance_to_goal}")
+        # self.get_logger().info(f"distance to goal is {self.distance_to_goal}")
         if self.distance_to_goal is not None and self.distance_to_goal < 0.2:
-            self.get_logger().info("Setting navigation to COMPLETE!")
+            # self.get_logger().info("Setting navigation to COMPLETE!")
+            self.navigator_final_success = True
             self.action_complete.set()
+
+
+    def waypoint_follower_callback(self, future):
+        if future.done():
+            self.get_logger().info(f"goal accepted status {future.result().success}")
 
 
     def execute_callback(self, goal_handle):
@@ -238,30 +235,23 @@ class MotionActionServer(Node):
         self.get_logger().info(f"Goals to waypoint follower are {str(routh_path)}")
 
         self.ddg_waypoint_follower_path.waypoints = routh_path
-        self.action_complete.clear() # clear the thread stopping Event
+        self.action_complete.clear()
         self.get_logger().info("Going to send goal to waypoint follower")
-        waypoint_future = self.send_goal_to_waypoint_follower(routh_path)
+        waypoint_future = self.ddg_waypoint_follower.call_async(self.ddg_waypoint_follower_path)
+        waypoint_future.add_done_callback(self.waypoint_follower_callback)
 
-        # if waypoint_future.done(): #! .done() should be returned only after completion, this is for debugging only
-        #     self.get_logger().info(f"goal accepted \n {waypoint_future.result().success}")
-
-        # self.action_complete.wait() # stop thread until event state changes
+        self.action_complete.wait()
+        motion_server_result = Navigate.Result()
         goal_handle.succeed()
 
-        # self.navigator_final_result = waypoint_future.result()
-        # if waypoint_future.result() is not None:
-        #     self.get_logger().info(f"Motion Server outcome is {waypoint_future.result()}")
-        #     motion_server_result = Navigate.Result()
-        #     motion_server_result.success = True
-        # else:
-        #     motion_server_result = Navigate.Result()
-        #     motion_server_result.success = False
-        #     pass
+        if self.navigator_final_success:
+            self.get_logger().info(f"Motion Server outcome is {waypoint_future.result()}")
+            motion_server_result.success = True
+        else:
+            motion_server_result.success = False
+            pass
 
-        motion_server_result = Navigate.Result()
-        motion_server_result.success = False
         self.get_logger().info(f"RETURNING MOTION SERVER RESULT {waypoint_future.result()}")
-        # motion_server_result.success = False #! TEMPORARY
         return motion_server_result
 
 
@@ -270,12 +260,9 @@ def MotionServer(args=None):
     print("ARGS IS", args)
 
     # start the MotionActionServer
-    # robot_motion_action_server = MotionActionServer(nav2_client, get_pose_client)
-    # multi_executor = MultiThreadedExecutor()
+    multi_executor = MultiThreadedExecutor()
     robot_motion_action_server = MotionActionServer()
-    # rclpy.spin(robot_motion_action_server, executor=multi_executor)
-    rclpy.spin(robot_motion_action_server)
-    # robot_motion_action_server.stop_timer_thread()
+    rclpy.spin(robot_motion_action_server, executor=multi_executor)
     robot_motion_action_server.destroy_node()
     rclpy.shutdown()
 
