@@ -21,6 +21,7 @@ import time
 from threading import Event
 
 # Handling Sync and Async : https://discourse.ros.org/t/how-to-use-callback-groups-in-ros2/25255
+#                         : https://gist.github.com/driftregion/14f6da05a71a57ef0804b68e17b06de5
 
 
 class DockingUndockingActionServer(Node):
