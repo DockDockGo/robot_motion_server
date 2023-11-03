@@ -161,7 +161,9 @@ class MotionActionServer(Node):
     def wrap_around_pi(self, x):
         x = abs(x)
         pi = 3.1415926
-        return abs((x + 2*pi) % pi - pi)
+        if x < pi:
+            return x
+        return abs((x + 2 * pi) % pi - pi)
 
     def radians_to_degrees(self, angle):
         return angle * 180.0 / 3.1415926
@@ -184,8 +186,8 @@ class MotionActionServer(Node):
         dz = pos1.position.z - pos2.position.z
 
         # Convert orientations to Euler angles (roll, pitch, and yaw)
-        euler_angles1 = euler_from_quaternion(pos1.orientation)
-        euler_angles2 = euler_from_quaternion(pos2.orientation)
+        euler_angles1 = euler_from_quaternion([pos1.orientation.x, pos1.orientation.y, pos1.orientation.z, pos1.orientation.w])
+        euler_angles2 = euler_from_quaternion([pos2.orientation.x, pos2.orientation.y, pos2.orientation.z, pos2.orientation.w])
 
         # Calculate the orientation difference
         self.orientation_difference = self.radians_to_degrees(self.wrap_around_pi(
@@ -206,9 +208,11 @@ class MotionActionServer(Node):
             self.motion_server_goal_handle.publish_feedback(feedback_msg)
 
         # distance in metres and orientation in degrees
-        if self.distance_to_goal is not None and self.distance_to_goal < 0.1 \
-            and self.orientation_difference is not None and self.orientation_difference < 5:
-            # self.get_logger().info("Setting navigation to COMPLETE!")
+        self.get_logger().info(f'{self.distance_to_goal=}')
+        self.get_logger().info(f'{self.orientation_difference=}')
+        if self.distance_to_goal is not None and self.distance_to_goal < 0.1 and self.orientation_difference is not None and self.orientation_difference < 5.0:
+        # if self.distance_to_goal is not None and self.distance_to_goal < 0.1:
+            self.get_logger().info("Setting navigation to COMPLETE!")
             self.navigator_final_success = True
             self.action_complete.set()
 
