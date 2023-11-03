@@ -208,10 +208,9 @@ class MotionActionServer(Node):
             self.motion_server_goal_handle.publish_feedback(feedback_msg)
 
         # distance in metres and orientation in degrees
-        self.get_logger().info(f'{self.distance_to_goal=}')
-        self.get_logger().info(f'{self.orientation_difference=}')
+        # self.get_logger().info(f'{self.distance_to_goal=}')
+        # self.get_logger().info(f'{self.orientation_difference=}')
         if self.distance_to_goal is not None and self.distance_to_goal < 0.1 and self.orientation_difference is not None and self.orientation_difference < 5.0:
-        # if self.distance_to_goal is not None and self.distance_to_goal < 0.1:
             self.get_logger().info("Setting navigation to COMPLETE!")
             self.navigator_final_success = True
             self.action_complete.set()
