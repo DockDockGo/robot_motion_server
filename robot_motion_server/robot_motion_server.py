@@ -51,6 +51,7 @@ class DockingUndockingActionServer(Node):
         self.robot_pose = None
         self.distance_to_goal = None
         self.goal_pose = None
+        self.goal_threshold = 0.1
 
         # construct the action server
         self._action_server = ActionServer(
