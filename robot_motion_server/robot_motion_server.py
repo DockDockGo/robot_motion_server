@@ -75,13 +75,13 @@ class DockingUndockingActionServer(Node):
     def define_goal_pose(self):
         goal_pose = PoseStamped()
 
-        goal_pose.pose.position.x = 0.0 # TODO
-        goal_pose.pose.position.y = 0.0 # TODO
+        goal_pose.pose.position.x = 1.3871464684537917
+        goal_pose.pose.position.y = -1.624471930481945
         goal_pose.pose.position.z = 0.0
-        goal_pose.pose.orientation.x = 0.0 # TODO
-        goal_pose.pose.orientation.y = 0.0 # TODO
-        goal_pose.pose.orientation.z = 0.0 # TODO
-        goal_pose.pose.orientation.w = 0.0 # TODO
+        goal_pose.pose.orientation.x = 0.0
+        goal_pose.pose.orientation.y = 0.0
+        goal_pose.pose.orientation.z = 0.01761977595584787
+        goal_pose.pose.orientation.w = 0.9998447596978571
         self.goal_pose = goal_pose
         # find euclidean pose
         self.euclidean_distance()
