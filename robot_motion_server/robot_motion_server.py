@@ -120,7 +120,7 @@ class DockingUndockingActionServer(Node):
         # feedback_msg.pose_feedback = None
         # goal_handle.publish_feedback(feedback_msg)
 
-        dock_id = math.ceil(abs(goal_handle.request.secs))
+        dock_id = int(abs(goal_handle.request.secs))
         self.get_logger().info(f"Docking Goal is {dock_id}")
 
         mode = "normal_dock_undock"
