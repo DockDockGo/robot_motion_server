@@ -148,6 +148,7 @@ class DockingUndockingActionServer(Node):
                 self.get_logger().info("CUSTOM DOCKING in Progress")
                 self.publisher_.publish(msg)
                 self.euclidean_distance()
+                self.get_logger().info(f"euclidean dist is {self.distance_to_goal}")
                 time.sleep(0.5)
 
         msg.linear.x = 0.0
