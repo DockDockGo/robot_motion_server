@@ -126,7 +126,7 @@ class DockingUndockingActionServer(Node):
             self.euclidean_distance()
 
         dock_id = int(abs(goal_handle.request.secs))
-        self.get_logger().info(f"Docking Goal is {dock_id}")
+        self.get_logger().info(f"Docking Goal is {goal_handle.request.secs}")
 
         mode = "normal_dock_undock"
         if goal_handle.request.secs < 0 and dock_id == 1:
@@ -138,13 +138,13 @@ class DockingUndockingActionServer(Node):
         if(mode == "normal_dock_undock"):
             # move forward for 2 seconds for undocking #! Hardcoded
             for i in range(0, 2):
-                self.get_logger().info("Docking/Undocking in Progress")
+                self.get_logger().info("NORMAL Docking/Undocking in Progress")
                 self.publisher_.publish(msg)
                 time.sleep(1)
 
         elif(mode == "custom_dock"):
             while(self.distance_to_goal is not None and self.distance_to_goal < self.goal_threshold):
-                self.get_logger().info("Docking/Undocking in Progress")
+                self.get_logger().info("CUSTOM DOCKING in Progress")
                 self.publisher_.publish(msg)
                 self.euclidean_distance()
                 time.sleep(0.5)
