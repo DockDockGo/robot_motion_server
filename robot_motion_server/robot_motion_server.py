@@ -73,18 +73,14 @@ class DockingUndockingActionServer(Node):
         self.define_goal_pose()
 
     def define_goal_pose(self):
-        goal_pose = PoseStamped()
-
-        goal_pose.pose.position.x = 1.3871464684537917
-        goal_pose.pose.position.y = -1.624471930481945
-        goal_pose.pose.position.z = 0.0
-        goal_pose.pose.orientation.x = 0.0
-        goal_pose.pose.orientation.y = 0.0
-        goal_pose.pose.orientation.z = 0.01761977595584787
-        goal_pose.pose.orientation.w = 0.9998447596978571
-        self.goal_pose = goal_pose
-        # find euclidean pose
-        self.euclidean_distance()
+        self.goal_pose = PoseStamped()
+        self.goal_pose.pose.position.x = 1.3871464684537917
+        self.goal_pose.pose.position.y = -1.624471930481945
+        self.goal_pose.pose.position.z = 0.0
+        self.goal_pose.pose.orientation.x = 0.0
+        self.goal_pose.pose.orientation.y = 0.0
+        self.goal_pose.pose.orientation.z = 0.01761977595584787
+        self.goal_pose.pose.orientation.w = 0.9998447596978571
 
     def robot_pose_callback(self, msg):
         self.robot_pose = msg
@@ -99,7 +95,7 @@ class DockingUndockingActionServer(Node):
         elif pose1 is None: # in Navigation State
             return None
         else:
-            raise ValueError("Input pose1 is not a valid type (Pose or PoseWithCovariance)")
+            raise ValueError("Input pose1 is not a valid type (PoseStamped or PoseWithCovarianceStamped)")
 
         # Calculate the Euclidean distance
         dx = pos1.position.x - pos2.position.x
@@ -119,6 +115,12 @@ class DockingUndockingActionServer(Node):
         # feedback_msg = DockUndock.Feedback()
         # feedback_msg.pose_feedback = None
         # goal_handle.publish_feedback(feedback_msg)
+
+        # Get current euclidean distance to goal
+        if self.robot_pose is None:
+            self.get_logger().error("Map Pose Not found")
+        else:
+            self.euclidean_distance()
 
         dock_id = int(abs(goal_handle.request.secs))
         self.get_logger().info(f"Docking Goal is {dock_id}")
