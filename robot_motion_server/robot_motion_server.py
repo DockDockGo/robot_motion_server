@@ -50,6 +50,7 @@ class DockingUndockingActionServer(Node):
         self.get_logger().info(f"cmd vel topic is {publisher_topic}")
         self.robot_pose = None
         self.distance_to_goal = None
+        self.goal_pose = None
 
         # construct the action server
         self._action_server = ActionServer(
@@ -81,6 +82,8 @@ class DockingUndockingActionServer(Node):
         self.goal_pose.pose.orientation.y = 0.0
         self.goal_pose.pose.orientation.z = 0.01761977595584787
         self.goal_pose.pose.orientation.w = 0.9998447596978571
+        if self.robot_pose is not None:
+            self.get_logger().info(f"got map pose of type {str(type(self.robot_pose))}")
 
     def robot_pose_callback(self, msg):
         self.robot_pose = msg
