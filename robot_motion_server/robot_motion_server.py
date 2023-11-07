@@ -144,7 +144,7 @@ class DockingUndockingActionServer(Node):
                 time.sleep(1)
 
         elif(mode == "custom_dock"):
-            while(self.distance_to_goal is not None and self.distance_to_goal < self.goal_threshold):
+            while(self.distance_to_goal is not None and self.distance_to_goal > self.goal_threshold):
                 self.get_logger().info("CUSTOM DOCKING in Progress")
                 self.publisher_.publish(msg)
                 self.euclidean_distance()
@@ -286,7 +286,7 @@ class MotionActionServer(Node):
         # self.get_logger().info(f'{self.distance_to_goal=}')
         # self.get_logger().info(f'{self.orientation_difference=}')
         if self.distance_to_goal is not None and self.distance_to_goal < 0.1 and self.orientation_difference is not None and self.orientation_difference < 5.0:
-            self.get_logger().info("Setting navigation to COMPLETE!")
+            # self.get_logger().info("Setting navigation to COMPLETE!")
             self.navigator_final_success = True
             self.action_complete.set()
 
