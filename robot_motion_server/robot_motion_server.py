@@ -36,23 +36,78 @@ class DockingUndockingActionServer(Node):
         robot_namespace = self.get_parameter('namespace_param').get_parameter_value().string_value
         self.get_logger().info(f"namespace is {robot_namespace}")
 
+        self.callback_group = ReentrantCallbackGroup()
+
         if robot_namespace != '':
             action_server_name = "/" + robot_namespace + "/" + "DockUndock"
             publisher_topic = "/" + robot_namespace + "/cmd_vel"
+            subscriber_topic = "/" + robot_namespace + "/map_pose"
         else:
             action_server_name = "DockUndock"
             publisher_topic = "/cmd_vel"
+            subscriber_topic = "/map_pose"
 
         self.get_logger().info(f"cmd vel topic is {publisher_topic}")
+        self.robot_pose = None
+        self.distance_to_goal = None
 
         # construct the action server
         self._action_server = ActionServer(
             self,
             DockUndock,
             action_server_name,
-            self.execute_callback)
+            self.execute_callback,
+            callback_group=self.callback_group)
+
         self.publisher_ = self.create_publisher(Twist, publisher_topic, 10)
 
+        # Pose Subscribers
+        self.pose_subscription = self.create_subscription(
+            msg_type=PoseWithCovarianceStamped,
+            topic=subscriber_topic,  # Topic on which pose is being relayed
+            callback=self.robot_pose_callback,
+            qos_profile=10,  # Adjust the queue size as needed
+        )
+
+        # get euclidean distance first
+        self.define_goal_pose()
+
+    def define_goal_pose(self):
+        goal_pose = PoseStamped()
+
+        goal_pose.pose.position.x = 0.0 # TODO
+        goal_pose.pose.position.y = 0.0 # TODO
+        goal_pose.pose.position.z = 0.0
+        goal_pose.pose.orientation.x = 0.0 # TODO
+        goal_pose.pose.orientation.y = 0.0 # TODO
+        goal_pose.pose.orientation.z = 0.0 # TODO
+        goal_pose.pose.orientation.w = 0.0 # TODO
+        self.goal_pose = goal_pose
+        # find euclidean pose
+        self.euclidean_distance()
+
+    def robot_pose_callback(self, msg):
+        self.robot_pose = msg
+
+    def euclidean_distance(self):
+        pose1 = self.goal_pose
+        pose2 = self.robot_pose
+        # Extract the positions from the poses
+        if isinstance(pose1, PoseStamped) and isinstance(pose2, PoseWithCovarianceStamped):
+            pos1 = pose1.pose
+            pos2 = pose2.pose.pose
+        elif pose1 is None: # in Navigation State
+            return None
+        else:
+            raise ValueError("Input pose1 is not a valid type (Pose or PoseWithCovariance)")
+
+        # Calculate the Euclidean distance
+        dx = pos1.position.x - pos2.position.x
+        dy = pos1.position.y - pos2.position.y
+        dz = pos1.position.z - pos2.position.z
+
+        distance = math.sqrt(dx**2 + dy**2 + dz**2)
+        self.distance_to_goal = distance
 
     def execute_callback(self, goal_handle):
         self.get_logger().info('Executing Docking/Undocking...')
@@ -65,15 +120,29 @@ class DockingUndockingActionServer(Node):
         # feedback_msg.pose_feedback = None
         # goal_handle.publish_feedback(feedback_msg)
 
-        goal_duration = math.ceil(abs(goal_handle.request.secs))
-        self.get_logger().info(f"Docking Goal Duration is {goal_duration}")
-        if goal_handle.request.secs < 0:
+        dock_id = math.ceil(abs(goal_handle.request.secs))
+        self.get_logger().info(f"Docking Goal is {dock_id}")
+
+        mode = "normal_dock_undock"
+        if goal_handle.request.secs < 0 and dock_id == 1:
+            msg.linear.x = -1 * msg.linear.x
+            mode = "custom_dock"
+        elif goal_handle.request.secs < 0 and dock_id != 1:
             msg.linear.x = -1 * msg.linear.x
 
-        for i in range(0, goal_duration):
-            self.get_logger().info("Docking/Undocking in Progress")
-            self.publisher_.publish(msg)
-            time.sleep(1)
+        if(mode == "normal_dock_undock"):
+            # move forward for 2 seconds for undocking #! Hardcoded
+            for i in range(0, 2):
+                self.get_logger().info("Docking/Undocking in Progress")
+                self.publisher_.publish(msg)
+                time.sleep(1)
+
+        elif(mode == "custom_dock"):
+            while(self.distance_to_goal is not None and self.distance_to_goal < self.goal_threshold):
+                self.get_logger().info("Docking/Undocking in Progress")
+                self.publisher_.publish(msg)
+                self.euclidean_distance()
+                time.sleep(0.5)
 
         msg.linear.x = 0.0
         self.publisher_.publish(msg)
@@ -269,9 +338,9 @@ def DockUndockServer(args=None):
     rclpy.init(args=args)
     print("ARGS IS", args)
     # start the MotionActionServer
-    # robot_motion_action_server = MotionActionServer(nav2_client, get_pose_client)
+    multi_executor_2 = MultiThreadedExecutor()
     robot_dockundock_action_server = DockingUndockingActionServer()
-    rclpy.spin(robot_dockundock_action_server)
+    rclpy.spin(robot_dockundock_action_server, executor=multi_executor_2)
     robot_dockundock_action_server.destroy_node()
     rclpy.shutdown()
 
