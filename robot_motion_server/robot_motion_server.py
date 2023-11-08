@@ -51,7 +51,7 @@ class DockingUndockingActionServer(Node):
         self.robot_pose = None
         self.distance_to_goal = None
         self.goal_pose = None
-        self.goal_threshold = 0.20
+        self.goal_threshold = 0.05
 
         # construct the action server
         self._action_server = ActionServer(
@@ -141,6 +141,7 @@ class DockingUndockingActionServer(Node):
                 time.sleep(1)
 
         elif(mode == "custom_dock"):
+            self.x_distance()
             self.get_logger().info(f"x dist is {self.distance_to_goal}")
             while(self.distance_to_goal is not None and self.distance_to_goal > self.goal_threshold):
                 self.get_logger().info("CUSTOM DOCKING in Progress")
