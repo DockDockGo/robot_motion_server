@@ -51,7 +51,7 @@ class DockingUndockingActionServer(Node):
         self.robot_pose = None
         self.distance_to_goal = None
         self.goal_pose = None
-        self.goal_threshold = 0.15
+        self.goal_threshold = 0.27
 
         # construct the action server
         self._action_server = ActionServer(
@@ -104,7 +104,7 @@ class DockingUndockingActionServer(Node):
 
         # Calculate the Euclidean distance
         dx = pos1.position.x - pos2.position.x
-        self.distance_to_goal = dx
+        self.distance_to_goal = abs(dx)
 
     def execute_callback(self, goal_handle):
         self.get_logger().info('Executing Docking/Undocking...')
