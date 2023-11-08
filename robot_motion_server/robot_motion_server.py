@@ -51,7 +51,7 @@ class DockingUndockingActionServer(Node):
         self.robot_pose = None
         self.distance_to_goal = None
         self.goal_pose = None
-        self.goal_threshold = 0.255
+        self.goal_threshold = 0.20
 
         # construct the action server
         self._action_server = ActionServer(
@@ -147,7 +147,7 @@ class DockingUndockingActionServer(Node):
                 self.publisher_.publish(msg)
                 self.x_distance()
                 self.get_logger().info(f"x dist is {self.distance_to_goal}")
-                time.sleep(0.5)
+                time.sleep(0.1)
 
         msg.linear.x = 0.0
         self.publisher_.publish(msg)
