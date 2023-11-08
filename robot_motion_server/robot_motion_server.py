@@ -150,7 +150,8 @@ class DockingUndockingActionServer(Node):
                 self.publisher_.publish(msg)
                 self.x_distance()
                 self.get_logger().info(f"x dist is {self.distance_to_goal}")
-                self.get_logger().info(f"y delta is {self.y_delta}")
+                if self.y_delta is not None:
+                    self.get_logger().info(f"y delta is {self.y_delta}")
                 time.sleep(0.1)
 
         msg.linear.x = 0.0
