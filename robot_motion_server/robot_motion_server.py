@@ -89,7 +89,8 @@ class DockingUndockingActionServer(Node):
     def robot_pose_callback(self, msg):
         self.robot_pose = msg
 
-    def euclidean_distance(self):
+    #! x_distance works if map and robot x axis is aligned
+    def x_distance(self):
         pose1 = self.goal_pose
         pose2 = self.robot_pose
         # Extract the positions from the poses
@@ -103,11 +104,7 @@ class DockingUndockingActionServer(Node):
 
         # Calculate the Euclidean distance
         dx = pos1.position.x - pos2.position.x
-        dy = pos1.position.y - pos2.position.y
-        dz = pos1.position.z - pos2.position.z
-
-        distance = math.sqrt(dx**2 + dy**2 + dz**2)
-        self.distance_to_goal = distance
+        self.distance_to_goal = dx
 
     def execute_callback(self, goal_handle):
         self.get_logger().info('Executing Docking/Undocking...')
@@ -124,7 +121,7 @@ class DockingUndockingActionServer(Node):
         if self.robot_pose is None:
             self.get_logger().error("Map Pose Not found")
         else:
-            self.euclidean_distance()
+            self.x_distance()
 
         dock_id = int(abs(goal_handle.request.secs))
         self.get_logger().info(f"Docking Goal is {goal_handle.request.secs}")
@@ -147,8 +144,8 @@ class DockingUndockingActionServer(Node):
             while(self.distance_to_goal is not None and self.distance_to_goal > self.goal_threshold):
                 self.get_logger().info("CUSTOM DOCKING in Progress")
                 self.publisher_.publish(msg)
-                self.euclidean_distance()
-                self.get_logger().info(f"euclidean dist is {self.distance_to_goal}")
+                self.x_distance()
+                self.get_logger().info(f"x dist is {self.distance_to_goal}")
                 time.sleep(0.5)
 
         msg.linear.x = 0.0
