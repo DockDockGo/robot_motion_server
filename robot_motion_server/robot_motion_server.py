@@ -73,6 +73,7 @@ class DockingUndockingActionServer(Node):
 
         # get euclidean distance first
         self.define_goal_pose()
+        self.y_delta = None
 
     def define_goal_pose(self):
         self.goal_pose = PoseStamped()
@@ -105,6 +106,7 @@ class DockingUndockingActionServer(Node):
         # Calculate the Euclidean distance
         dx = pos1.position.x - pos2.position.x
         self.distance_to_goal = abs(dx)
+        self.y_delta = abs(pos1.position.y - pos2.position.y)
 
     def execute_callback(self, goal_handle):
         self.get_logger().info('Executing Docking/Undocking...')
@@ -148,6 +150,7 @@ class DockingUndockingActionServer(Node):
                 self.publisher_.publish(msg)
                 self.x_distance()
                 self.get_logger().info(f"x dist is {self.distance_to_goal}")
+                self.get_logger().info(f"y delta is {self.y_delta}")
                 time.sleep(0.1)
 
         msg.linear.x = 0.0
