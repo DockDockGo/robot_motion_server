@@ -9,6 +9,7 @@ from robot_action_interfaces.action import Navigate
 from nav_msgs.msg import Path
 from nav2_msgs.action import NavigateToPose, NavigateThroughPoses
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist, Pose
+from nav_msgs.msg import Odometry
 from copy import deepcopy
 from rclpy.duration import Duration
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
@@ -42,16 +43,20 @@ class DockingUndockingActionServer(Node):
             action_server_name = "/" + robot_namespace + "/" + "DockUndock"
             publisher_topic = "/" + robot_namespace + "/cmd_vel"
             subscriber_topic = "/" + robot_namespace + "/map_pose"
+            velocity_subscriber_topic = "/" + robot_namespace + "/odom"
         else:
             action_server_name = "DockUndock"
             publisher_topic = "/cmd_vel"
             subscriber_topic = "/map_pose"
+            velocity_subscriber_topic = "/odom"
 
         self.get_logger().info(f"cmd vel topic is {publisher_topic}")
         self.robot_pose = None
-        self.distance_to_goal = None
+        self.robot_vel = None
         self.goal_pose = None
+        self.goal_pose_2 = None
         self.goal_threshold = 0.07
+        self.undock_duration = 2
 
         # construct the action server
         self._action_server = ActionServer(
@@ -71,28 +76,29 @@ class DockingUndockingActionServer(Node):
             qos_profile=10,  # Adjust the queue size as needed
         )
 
+        # Velocity Subscribers
+        self.velocity_subscription = self.create_subscription(
+            msg_type=Odometry,
+            topic=velocity_subscriber_topic,  # Topic on which pose is being relayed
+            callback=self.robot_velocity_callback,
+            qos_profile=10,  # Adjust the queue size as needed
+        )
+
         # get euclidean distance first
         self.define_goal_pose()
         self.y_delta = None
 
-    def define_goal_pose(self):
-        self.goal_pose = PoseStamped()
-        self.goal_pose.pose.position.x = 1.3871464684537917
-        self.goal_pose.pose.position.y = -1.624471930481945
-        self.goal_pose.pose.position.z = 0.0
-        self.goal_pose.pose.orientation.x = 0.0
-        self.goal_pose.pose.orientation.y = 0.0
-        self.goal_pose.pose.orientation.z = 0.01761977595584787
-        self.goal_pose.pose.orientation.w = 0.9998447596978571
-        if self.robot_pose is not None:
-            self.get_logger().info(f"got map pose of type {str(type(self.robot_pose))}")
+    def wrap_around_pi(self, x):
+        x = abs(x)
+        pi = 3.1415926
+        if x < pi:
+            return x
+        return abs((x + 2 * pi) % pi - pi)
 
-    def robot_pose_callback(self, msg):
-        self.robot_pose = msg
+    def radians_to_degrees(self, angle):
+        return angle * 180.0 / 3.1415926
 
-    #! x_distance works if map and robot x axis is aligned
-    def x_distance(self):
-        pose1 = self.goal_pose
+    def calc_dx_dy_dtheta(self, pose1):
         pose2 = self.robot_pose
         # Extract the positions from the poses
         if isinstance(pose1, PoseStamped) and isinstance(pose2, PoseWithCovarianceStamped):
@@ -101,18 +107,47 @@ class DockingUndockingActionServer(Node):
         elif pose1 is None: # in Navigation State
             return None
         else:
-            raise ValueError("Input pose1 is not a valid type (PoseStamped or PoseWithCovarianceStamped)")
+            raise ValueError("Input pose1 is not a valid type (Pose or PoseWithCovariance)")
 
         # Calculate the Euclidean distance
+        # dx = goal_pose - robot_pose
         dx = pos1.position.x - pos2.position.x
-        self.distance_to_goal = abs(dx)
-        self.y_delta = abs(pos1.position.y - pos2.position.y)
+        dy = pos1.position.y - pos2.position.y
+        # Calculate the orientation error (theta_error) using arctangent
+        theta_error = math.atan2(dy, dx)
+        # Convert orientations to Euler angles (roll, pitch, and yaw)
+        euler_angles1 = euler_from_quaternion([pos1.orientation.x, pos1.orientation.y, pos1.orientation.z, pos1.orientation.w])
+        euler_angles2 = euler_from_quaternion([pos2.orientation.x, pos2.orientation.y, pos2.orientation.z, pos2.orientation.w])
+        # Calculate the orientation difference
+        true_theta_error = self.wrap_around_pi(euler_angles2[2] - euler_angles1[2])
+
+        return dx, dy, theta_error, true_theta_error
+
+
+    def world_frame_orientation(self):
+        orientation = self.robot_pose.pose.pose.orientation
+        euler_angle_rad = euler_from_quaternion([orientation.x, orientation.y, orientation.z, orientation.w])
+        return euler_angle_rad[2]
+
+    def define_goal_pose(self):
+        self.goal_pose = PoseStamped()
+        self.goal_pose.pose.position.x = 6.658
+        self.goal_pose.pose.position.y = -0.1
+        self.goal_pose.pose.position.z = 0.0
+        self.goal_pose.pose.orientation.x = 0.0
+        self.goal_pose.pose.orientation.y = 0.0
+        self.goal_pose.pose.orientation.z = -0.675927815
+        self.goal_pose.pose.orientation.w = 0.7369678335
+
+
+    def robot_pose_callback(self, msg):
+        self.robot_pose = msg
+
+    def robot_velocity_callback(self, msg):
+        self.robot_vel = msg.twist.twist
 
     def execute_callback(self, goal_handle):
         self.get_logger().info('Executing Docking/Undocking...')
-
-        msg = Twist()
-        msg.linear.x = 0.2
 
         # Define and fill the feedback message
         # feedback_msg = DockUndock.Feedback()
@@ -122,42 +157,101 @@ class DockingUndockingActionServer(Node):
         # Get current euclidean distance to goal
         if self.robot_pose is None:
             self.get_logger().error("Map Pose Not found")
-        else:
-            self.x_distance()
 
         dock_id = int(abs(goal_handle.request.secs))
         self.get_logger().info(f"Docking Goal is {goal_handle.request.secs}")
 
-        mode = "normal_dock_undock"
-        if goal_handle.request.secs < 0 and dock_id == 1:
-            msg.linear.x = -1 * msg.linear.x
-            mode = "custom_dock"
-        elif goal_handle.request.secs < 0 and dock_id != 1:
-            msg.linear.x = -1 * msg.linear.x
-
-        if(mode == "normal_dock_undock"):
-            # move forward for 2 seconds for undocking #! Hardcoded
-            for i in range(0, 2):
-                self.get_logger().info("NORMAL Docking/Undocking in Progress")
+        # Simple Undocking
+        if goal_handle.request.secs > 0.0:
+            msg = Twist()
+            msg.linear.x = 0.2
+            for i in range(0, self.undock_duration):
+                self.get_logger().info("Undocking in Progress")
                 self.publisher_.publish(msg)
                 time.sleep(1)
 
-        elif(mode == "custom_dock"):
-            self.x_distance()
-            self.get_logger().info(f"x dist is {self.distance_to_goal}")
-            while(self.distance_to_goal is not None and self.distance_to_goal > self.goal_threshold):
-                self.get_logger().info("CUSTOM DOCKING in Progress")
-                self.publisher_.publish(msg)
-                self.x_distance()
-                self.get_logger().info(f"x dist is {self.distance_to_goal}")
-                if self.y_delta is not None:
-                    self.get_logger().info(f"y delta is {self.y_delta}")
-                time.sleep(0.1)
+            self.get_logger().info("FINISHED UNDOCKING")
+            result = DockUndock.Result()
+            result.success = True
+            goal_handle.succeed()
+            return result
 
-        msg.linear.x = 0.0
+
+        # Find direction of dock (Find along which axis is the dock)
+        dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(PoseStamped())
+        dock_axis = "y" if (true_dtheta > 0.8) else "x"
+        self.get_logger().info(f"dock axis is {dock_axis}")
+
+        # Figure out which direction robot needs to turn for 1st correction (1st while loop)
+        robot_orientation_in_world_frame = self.world_frame_orientation()
+        if dock_axis == "x":
+            if abs(robot_orientation_in_world_frame) < 0.5:
+                rotation_direction = -1 if dy < 0.0 else 1
+            else:
+                rotation_direction = 1 if dy < 0.0 else -1
+        elif dock_axis == "y":
+            if (robot_orientation_in_world_frame  < -1) and (robot_orientation_in_world_frame  > -2):
+                rotation_direction = -1 if dx < 0.0 else 1
+            elif (robot_orientation_in_world_frame  > 1) and (robot_orientation_in_world_frame  < 2):
+                rotation_direction = 1 if dx < 0.0 else -1
+
+        assert rotation_direction
+
+        # while(True):
+        #     dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
+        #     robot_orientation_in_world_frame = self.world_frame_orientation()
+        #     self.get_logger().info(f"orientation in world frame is {robot_orientation_in_world_frame}")
+        #     self.get_logger().info(f"axis is {dock_axis}")
+        #     self.get_logger().info(f"dx is {dx} and dy is {dy}")
+        #     self.get_logger().info(f"rotation direction {rotation_direction}")
+        #     time.sleep(1)
+
+        self.get_logger().info(f"true_dtheta is {true_dtheta}")
+        while(not (abs(true_dtheta) > 1.55 and abs(true_dtheta) < 1.59)):
+            self.get_logger().info("Docking_1 in Progress")
+            msg = Twist()
+            msg.angular.z = 0.4 * rotation_direction
+            self.publisher_.publish(msg)
+            dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
+            self.get_logger().info(f"dx, dy, dtheta, and true_dtheta is {dx}, {dy}, {dtheta}, {true_dtheta}")
+            time.sleep(0.05)
+
+        dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
+        stop_condition = lambda dist: abs(dist) > 0.05
+        while stop_condition(dy if dock_axis=="x" else dx):
+            self.get_logger().info("Docking_2 in Progress")
+            msg = Twist()
+            msg.linear.x = 0.4 # note this has to be positive due the first loop's reorientation
+            self.publisher_.publish(msg)
+            dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
+            self.get_logger().info(f"dx, dy, dtheta, and true_dtheta is {dx}, {dy}, {dtheta}, {true_dtheta}")
+            time.sleep(0.05)
+
+        dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
+        self.get_logger().info(f"true_dtheta is {true_dtheta}")
+        while(abs(true_dtheta) > 0.05):
+            self.get_logger().info("Docking_3 in Progress")
+            msg = Twist()
+            msg.angular.z = 0.4 * rotation_direction * -1
+            self.publisher_.publish(msg)
+            dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
+            self.get_logger().info(f"dx, dy, dtheta, and true_dtheta is {dx}, {dy}, {dtheta}, {true_dtheta}")
+            time.sleep(0.05)
+
+        dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
+        stop_condition = lambda dist: dist > 0.03
+        while stop_condition(dx if dock_axis=="x" else dy):
+            self.get_logger().info("Docking_4 in Progress")
+            msg = Twist()
+            msg.linear.x = -0.2
+            self.publisher_.publish(msg)
+            dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
+            self.get_logger().info(f"dx, dy, dtheta, and true_dtheta is {dx}, {dy}, {dtheta}, {true_dtheta}")
+            time.sleep(0.05)
+
+        msg = Twist()
         self.publisher_.publish(msg)
         self.get_logger().info("FINISHED DOCKING")
-
         result = DockUndock.Result()
         result.success = True
 
@@ -165,6 +259,31 @@ class DockingUndockingActionServer(Node):
 
         return result
 
+
+        #! Partially works
+        # prev_dx, prev_dtheta = 0.0, 0.0
+        # dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
+        # while(abs(dtheta) > 0.06 or abs(dy > 0.02)):
+        #     self.get_logger().info("Docking_1 in Progress")
+        #     ###### PID LOGIC ######
+        #     msg = Twist()
+        #     dx, dy, dtheta, true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
+        #     # Kp_x = 0.3
+        #     Kp_theta = 0.4
+        #     Kd = 1.0
+        #     dt = 0.2
+        #     # delta_accel_x = Kp_x*dx + Kd*(dx - prev_dx)
+        #     delta_angular = Kp_theta*dtheta + Kd*(dtheta - prev_dtheta)
+        #     # vel_x = delta_accel_x * dt + self.robot_vel.linear.x
+        #     ang_vel_z = delta_angular * dt + self.robot_vel.angular.z
+        #     msg.linear.x = 0.2
+        #     msg.angular.z = ang_vel_z if true_dtheta < math.pi/2 else -ang_vel_z
+        #     self.publisher_.publish(msg)
+        #     # prev_dx = dx
+        #     prev_dtheta = dtheta
+        #     #######################
+        #     self.get_logger().info(f"dx, dy, dtheta, and true_dtheta is {dx}, {dy}, {dtheta}, {true_dtheta}")
+        #     time.sleep(0.2)
 
 
 class MotionActionServer(Node):
