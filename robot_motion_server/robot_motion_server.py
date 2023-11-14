@@ -137,7 +137,7 @@ class DockingUndockingActionServer(Node):
 
         if(mode == "normal_dock_undock"):
             # move forward for 2 seconds for undocking #! Hardcoded
-            for i in range(0, 2):
+            for i in range(0, 1):
                 self.get_logger().info("NORMAL Docking/Undocking in Progress")
                 self.publisher_.publish(msg)
                 time.sleep(1)
