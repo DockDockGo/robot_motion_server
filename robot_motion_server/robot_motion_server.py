@@ -220,7 +220,7 @@ class DockingUndockingActionServer(Node):
             rotation_direction = math.copysign(1, self.fiducial_orientation)
             self.get_logger().info(f"Docking_1 in Progress with orientation {self.fiducial_orientation}")
             msg = Twist()
-            msg.angular.z = 0.4 * rotation_direction
+            msg.angular.z = 0.4 * -1 * rotation_direction
             self.publisher_.publish(msg)
             time.sleep(0.1)
 
