@@ -401,7 +401,7 @@ class MotionActionServer(Node):
             euler_angles2[2] - euler_angles1[2]
         ))
 
-        distance = math.sqrt(dx**2 + dy**2 + dz**2)
+        distance = math.sqrt(dx**2 + dy**2)
         self.distance_to_goal = distance
 
     def simple_timer_callback(self):
