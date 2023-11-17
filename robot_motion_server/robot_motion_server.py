@@ -21,6 +21,7 @@ import math
 import time
 from threading import Event
 from tf_transformations import euler_from_quaternion
+from fiducial_msgs.msg import FiducialMarkerData
 
 # Handling Sync and Async : https://discourse.ros.org/t/how-to-use-callback-groups-in-ros2/25255
 #                         : https://gist.github.com/driftregion/14f6da05a71a57ef0804b68e17b06de5
@@ -53,7 +54,9 @@ class DockingUndockingActionServer(Node):
         self.fiducial_range = None
         self.fiducial_orientation = None
         self.fiducial_lateral_offset = None
+        self.fiducial_marker_id = None
         self.goal_pose = None
+        self.dock_id = None
         self.goal_lateral_threshold = 0.05 # metres
         self.robot_to_fiducial_goal_distance = 0.75 # metres
         self.undock_duration = 1
@@ -82,7 +85,7 @@ class DockingUndockingActionServer(Node):
 
         # Fiducial Subscriber
         self.fiducial_subscription = self.create_subscription(
-            msg_type="", #TODO # Add message type
+            msg_type=FiducialMarkerData, #TODO # Add message type
             topic="/fiducial_marker_data",
             callback=self.fiducial_orientation_range_callback,
             qos_profile=10,  # Adjust the queue size as needed
@@ -105,9 +108,16 @@ class DockingUndockingActionServer(Node):
         self.robot_pose = msg
 
     def fiducial_orientation_range_callback(self, msg):
-        self.fiducial_lateral_offset = msg + self.y_bias #TODO use the correct attribute of msg like msg.range
-        self.fiducial_range = msg #TODO use the correct attribute of msg like msg.range
-        self.fiducial_orientation = msg #TODO use the correct attribute of msg like msg.range
+        self.fiducial_marker_id = msg.marker_frame_id
+        if self.dock_id is None:
+            self.fiducial_lateral_offset = msg.lateral_offset + self.y_bias
+            self.fiducial_range = msg.range
+            self.fiducial_orientation = msg.yaw
+        # verification check to ensure we only use pose from correct DockID
+        elif self.dock_id == self.fiducial_marker_id:
+            self.fiducial_lateral_offset = msg.lateral_offset + self.y_bias
+            self.fiducial_range = msg.range
+            self.fiducial_orientation = msg.yaw
 
     def publish_zero_twist(self):
         msg = Twist()
@@ -181,7 +191,7 @@ class DockingUndockingActionServer(Node):
         if self.robot_pose is None:
             self.get_logger().error("Map Pose Not found")
 
-        dock_id = int(abs(goal_handle.request.secs))
+        self.dock_id = int(abs(goal_handle.request.secs))
         self.get_logger().info(f"Docking Goal is {goal_handle.request.secs}")
 
         ################## Simple Undocking ##################
