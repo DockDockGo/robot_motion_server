@@ -124,6 +124,24 @@ class DockingUndockingActionServer(Node):
         return dx, dy, theta_error, true_theta_error
 
 
+    def get_individual_orientations(self, pose1):
+        pose2 = self.robot_pose
+        # Extract the positions from the poses
+        if isinstance(pose1, PoseStamped) and isinstance(pose2, PoseWithCovarianceStamped):
+            pos1 = pose1.pose
+            pos2 = pose2.pose.pose
+        elif pose1 is None: # in Navigation State
+            return None
+        else:
+            raise ValueError("Input pose1 is not a valid type (Pose or PoseWithCovariance)")
+
+        # Convert orientations to Euler angles (roll, pitch, and yaw)
+        euler_angles1 = euler_from_quaternion([pos1.orientation.x, pos1.orientation.y, pos1.orientation.z, pos1.orientation.w])
+        euler_angles2 = euler_from_quaternion([pos2.orientation.x, pos2.orientation.y, pos2.orientation.z, pos2.orientation.w])
+
+        return euler_angles1, euler_angles2
+
+
     def world_frame_orientation(self):
         orientation = self.robot_pose.pose.pose.orientation
         euler_angle_rad = euler_from_quaternion([orientation.x, orientation.y, orientation.z, orientation.w])
@@ -181,9 +199,10 @@ class DockingUndockingActionServer(Node):
         dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(PoseStamped())
         dock_axis = "y" if (true_dtheta > 0.8) else "x"
         self.get_logger().info(f"dock axis is {dock_axis}")
-
         # Figure out which direction robot needs to turn for 1st correction (1st while loop)
         robot_orientation_in_world_frame = self.world_frame_orientation()
+
+        dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
         if dock_axis == "x":
             if abs(robot_orientation_in_world_frame) < 0.5:
                 rotation_direction = -1 if dy < 0.0 else 1
@@ -191,30 +210,34 @@ class DockingUndockingActionServer(Node):
                 rotation_direction = 1 if dy < 0.0 else -1
         elif dock_axis == "y":
             if (robot_orientation_in_world_frame  < -1) and (robot_orientation_in_world_frame  > -2):
+                self.get_logger().info("1st if")
                 rotation_direction = -1 if dx < 0.0 else 1
             elif (robot_orientation_in_world_frame  > 1) and (robot_orientation_in_world_frame  < 2):
+                self.get_logger().info("2nd if")
                 rotation_direction = 1 if dx < 0.0 else -1
 
         assert rotation_direction
 
         # while(True):
-        #     dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
-        #     robot_orientation_in_world_frame = self.world_frame_orientation()
-        #     self.get_logger().info(f"orientation in world frame is {robot_orientation_in_world_frame}")
+        #     # dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
+        #     # robot_orientation_in_world_frame = self.world_frame_orientation()
+        #     goal_orientation, robot_orientation = self.get_individual_orientations(self.goal_pose)
+        #     self.get_logger().info(f"goal orientation is {goal_orientation[2]} and robot orientation is {robot_orientation[2]}")
+        #     # self.get_logger().info(f"orientation in world frame is {robot_orientation_in_world_frame}")
         #     self.get_logger().info(f"axis is {dock_axis}")
         #     self.get_logger().info(f"dx is {dx} and dy is {dy}")
         #     self.get_logger().info(f"rotation direction {rotation_direction}")
-        #     time.sleep(1)
+        #     time.sleep(10)
 
         self.get_logger().info(f"true_dtheta is {true_dtheta}")
-        while(not (abs(true_dtheta) > 1.55 and abs(true_dtheta) < 1.59)):
+        while(not (abs(true_dtheta) > 1.56 and abs(true_dtheta) < 1.58)):
             self.get_logger().info("Docking_1 in Progress")
             msg = Twist()
             msg.angular.z = 0.4 * rotation_direction
             self.publisher_.publish(msg)
             dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
             self.get_logger().info(f"dx, dy, dtheta, and true_dtheta is {dx}, {dy}, {dtheta}, {true_dtheta}")
-            time.sleep(0.05)
+            time.sleep(0.02)
 
         dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
         stop_condition = lambda dist: abs(dist) > 0.05
@@ -225,7 +248,7 @@ class DockingUndockingActionServer(Node):
             self.publisher_.publish(msg)
             dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
             self.get_logger().info(f"dx, dy, dtheta, and true_dtheta is {dx}, {dy}, {dtheta}, {true_dtheta}")
-            time.sleep(0.05)
+            time.sleep(0.02)
 
         dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
         self.get_logger().info(f"true_dtheta is {true_dtheta}")
@@ -236,7 +259,7 @@ class DockingUndockingActionServer(Node):
             self.publisher_.publish(msg)
             dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
             self.get_logger().info(f"dx, dy, dtheta, and true_dtheta is {dx}, {dy}, {dtheta}, {true_dtheta}")
-            time.sleep(0.05)
+            time.sleep(0.02)
 
         dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
         stop_condition = lambda dist: dist > 0.03
@@ -247,7 +270,7 @@ class DockingUndockingActionServer(Node):
             self.publisher_.publish(msg)
             dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
             self.get_logger().info(f"dx, dy, dtheta, and true_dtheta is {dx}, {dy}, {dtheta}, {true_dtheta}")
-            time.sleep(0.05)
+            time.sleep(0.02)
 
         msg = Twist()
         self.publisher_.publish(msg)
