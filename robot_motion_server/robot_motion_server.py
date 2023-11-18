@@ -62,14 +62,7 @@ class DockingUndockingActionServer(Node):
         self.forward_velocity = 0.08
         self.angular_velocity = math.pi/4
 
-        # define biases to be used for docking
-        x_bias = 0
-        y_bias = 0
-        range_bias = 0
-        self.x_bias = x_bias
-        self.y_bias = y_bias
-        self.range_bias = range_bias
-        self.robot_to_fiducial_goal_distance = 0.71 + self.range_bias # metres
+        self.update_biases_to_docks(lateral_bias=0.0, forward_bias=0.0)
 
         # construct the action server
         self._action_server = ActionServer(
@@ -97,6 +90,11 @@ class DockingUndockingActionServer(Node):
             qos_profile=10,  # Adjust the queue size as needed
         )
 
+    def update_biases_to_docks(self, lateral_bias, forward_bias):
+        # define biases to be used for docking
+        self.lateral_bias = lateral_bias
+        self.robot_to_fiducial_goal_distance = 0.71 + forward_bias # metres
+
     def define_goal_pose(self, dx, dy):
         self.goal_pose = PoseStamped()
         self.goal_pose.pose.position.x = self.robot_pose.pose.pose.position.x + dx
@@ -113,13 +111,13 @@ class DockingUndockingActionServer(Node):
     def fiducial_orientation_range_callback(self, msg):
         self.fiducial_marker_id = int(msg.marker_frame_id[-1])
         if self.dock_id is None:
-            self.fiducial_lateral_offset = msg.lateral_offset + self.y_bias
+            self.fiducial_lateral_offset = msg.lateral_offset + self.lateral_bias
             self.fiducial_range = msg.range
             self.fiducial_orientation = msg.yaw
         # verification check to ensure we only use pose from correct DockID
         elif (self.dock_id is not None) and (int(self.dock_id) == self.fiducial_marker_id):
             # self.get_logger().info("got matched dock ID")
-            self.fiducial_lateral_offset = msg.lateral_offset + self.y_bias
+            self.fiducial_lateral_offset = msg.lateral_offset + self.lateral_bias
             self.fiducial_range = msg.range
             self.fiducial_orientation = msg.yaw
         else:
@@ -204,8 +202,9 @@ class DockingUndockingActionServer(Node):
         if self.robot_pose is None:
             self.get_logger().error("Map Pose Not found")
 
+        self.update_biases_to_docks(goal_handle.dock_lateral_bias, goal_handle.dock_forward_bias)
         self.dock_id = int(abs(goal_handle.request.secs))
-        self.get_logger().info(f"Docking Goal is {goal_handle.request.secs}")
+        self.get_logger().info(f"Docking Goal is {self.dock_id}")
 
         ################## Simple Undocking ##################
         if goal_handle.request.secs > 0.0:
@@ -279,7 +278,7 @@ class DockingUndockingActionServer(Node):
 
         self.publish_zero_twist()
 
-        # Step5: Use the rotation_direction of Step3
+        # Step5
         msg = Twist()
         msg.angular.z = self.angular_velocity * rotation_direction_2
         start = self.get_current_time()
