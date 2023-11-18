@@ -58,12 +58,18 @@ class DockingUndockingActionServer(Node):
         self.goal_pose = None
         self.dock_id = None
         self.goal_lateral_threshold = 0.05 # metres
-        self.robot_to_fiducial_goal_distance = 0.75 # metres
         self.undock_duration = 1
+        self.forward_velocity = 0.05
+        self.angular_velocity = math.pi/4
 
         # define biases to be used for docking
-        self.x_bias = 0.0
-        self.y_bias = 0.0
+        x_bias = 0
+        y_bias = 0
+        range_bias = 0
+        self.x_bias = x_bias
+        self.y_bias = y_bias
+        self.range_bias = range_bias
+        self.robot_to_fiducial_goal_distance = 0.71 + self.range_bias # metres
 
         # construct the action server
         self._action_server = ActionServer(
@@ -112,7 +118,7 @@ class DockingUndockingActionServer(Node):
             self.fiducial_orientation = msg.yaw
         # verification check to ensure we only use pose from correct DockID
         elif (self.dock_id is not None) and (int(self.dock_id) == self.fiducial_marker_id):
-            self.get_logger().info("got matched dock ID")
+            # self.get_logger().info("got matched dock ID")
             self.fiducial_lateral_offset = msg.lateral_offset + self.y_bias
             self.fiducial_range = msg.range
             self.fiducial_orientation = msg.yaw
@@ -177,6 +183,13 @@ class DockingUndockingActionServer(Node):
 
         return ex, ey
 
+    def get_current_time(self):
+        # Get the current wall clock time
+        wall_clock_time = self.get_clock().now()
+
+        # Convert the ROS Time to a Python float representing seconds
+        return wall_clock_time.to_msg().sec + wall_clock_time.to_msg().nanosec / 1e9
+
 
     def execute_callback(self, goal_handle):
         self.get_logger().info('Executing Docking/Undocking...')
@@ -211,65 +224,80 @@ class DockingUndockingActionServer(Node):
         ################## Fiducial Docking ##################
 
         # Step1: Align Pose to fiducial
-        while(abs(self.fiducial_orientation) > 3): # NOTE: self.fiducial_orientation in degrees
-            rotation_direction = math.copysign(1, self.fiducial_orientation)
-            self.get_logger().info(f"Docking_1 in Progress with orientation {self.fiducial_orientation}")
-            msg = Twist()
-            msg.angular.z = 0.1 * -1 * rotation_direction
-            self.publisher_.publish(msg)
-            time.sleep(0.02)
+        rotation_direction = math.copysign(1, self.fiducial_orientation)
+        rotation_duration = (abs(self.fiducial_orientation) * (math.pi/180))/self.angular_velocity # in radians
+        self.get_logger().info(f"rotation direction is {rotation_direction}")
+        start = self.get_current_time()
+        end = self.get_current_time()
+        if self.fiducial_orientation > 2: # correct only if orientation error is bad
+            while(abs(end-start) < rotation_duration):
+                msg = Twist()
+                msg.angular.z = self.angular_velocity * -1.0 * rotation_direction
+                self.get_logger().info(f"Docking_1 in Progress with dtheta")
+                self.publisher_.publish(msg)
+                time.sleep(0.01)
+                end = self.get_current_time()
 
         self.publish_zero_twist()
 
         # Step2: Calculate the error in pre_dock and use that to set new goal_pose
+        current_fiducial_offset = self.fiducial_lateral_offset
+        while(current_fiducial_offset == self.fiducial_lateral_offset):
+            time.sleep(0.5) # wait until we get new fiducial reading
         dy = self.fiducial_lateral_offset
         dx = 0.0
-        self.define_goal_pose(dx, dy) #! Fix your goal pose, something wrong here
+        self.define_goal_pose(dx=0.0, dy=0.0)
+        # NOTE: Temporaray fix, using dy error to calc dt (vel * dt = error)
+        dt = abs(dy)/self.forward_velocity
 
-        # Step3: Turn robot 90 degrees depending on which side of the fiducial we are located
-        rotation_direction_1 = math.copysign(1, dy)
-        rotation_direction_2 = -1 * math.copysign(1, dy)
-        dtheta = self.calc_dtheta()
-        while(not (dtheta > 89 and dtheta < 93)):
-            self.get_logger().info(f"Docking_3 in Progress with dtheta {dtheta}")
+        # Step 3
+        if current_fiducial_offset > 0.05: # fiducial offset is greater than 5 cm error
+            rotation_direction_1 = math.copysign(1, self.fiducial_lateral_offset)
+            rotation_direction_2 = -1 * math.copysign(1, self.fiducial_lateral_offset)
             msg = Twist()
-            msg.angular.z = 0.1 * rotation_direction_1
-            self.publisher_.publish(msg)
-            time.sleep(0.02)
-            dtheta = self.calc_dtheta()
+            msg.angular.z = self.angular_velocity * rotation_direction_1
+            start = self.get_current_time()
+            end = self.get_current_time()
+            rotation_duration = 2 # second
+            while(abs(end-start) < rotation_duration):
+                self.get_logger().info(f"Docking_3 in Progress with dtheta")
+                self.publisher_.publish(msg)
+                time.sleep(0.01)
+                end = self.get_current_time()
 
         self.publish_zero_twist()
 
-        # Step4: Move to goal pose
-        error_x, error_y = self.calc_euclidean_dist()
-        self.get_logger().info(f"Docking_4 Going to start with dx {error_x} and dy {error_y}")
-        while(abs(error_y) > self.goal_lateral_threshold):
-            self.get_logger().info(f"Docking_4 in Progress with dx {error_x} and dy {error_y}")
-            msg = Twist()
-            msg.linear.x = 0.05
+        # Step 4
+        msg = Twist()
+        msg.linear.x = self.forward_velocity
+        start = self.get_current_time()
+        end = self.get_current_time()
+        while(abs(end-start) < dt):
             self.publisher_.publish(msg)
-            time.sleep(0.02)
-            error_x, error_y = self.calc_euclidean_dist()
+            time.sleep(0.01)
+            end = self.get_current_time()
 
         self.publish_zero_twist()
 
         # Step5: Use the rotation_direction of Step3
-        dtheta = self.calc_dtheta()
-        self.get_logger().info(f"Docking_5 Going to start with dtheta {dtheta}")
-        while(dtheta < 2):
-            msg = Twist()
-            msg.angular.z = 0.1 * rotation_direction_2
+        msg = Twist()
+        msg.angular.z = self.angular_velocity * rotation_direction_2
+        start = self.get_current_time()
+        end = self.get_current_time()
+        rotation_duration = 2 # second
+        while(abs(end-start) < rotation_duration):
+            self.get_logger().info(f"Docking_3 in Progress with dtheta")
             self.publisher_.publish(msg)
-            time.sleep(0.1)
-            dtheta = self.calc_dtheta()
+            time.sleep(0.01)
+            end = self.get_current_time()
 
         self.publish_zero_twist()
 
         # Step6: Move robot backwards until fiducial range is minimized
         self.get_logger().info(f"Docking_6 Going to start with fiducial range={self.fiducial_range}")
+        msg = Twist()
+        msg.linear.x = -1 * self.forward_velocity
         while(self.fiducial_range > abs(self.robot_to_fiducial_goal_distance)):
-            msg = Twist()
-            msg.linear.x = -0.2
             self.publisher_.publish(msg)
             time.sleep(0.1)
 
@@ -278,17 +306,6 @@ class DockingUndockingActionServer(Node):
             self.get_logger().info(f"Successfully doced with fiducial lateral offset at {self.fiducial_lateral_offset} and fiducial range at {self.fiducial_range}")
         else:
             self.get_logger().info(f"Bad Docking with fiducial lateral offset at {self.fiducial_lateral_offset} and fiducial range at {self.fiducial_range}")
-
-        # while(True):
-        #     # dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
-        #     # robot_orientation_in_world_frame = self.world_frame_orientation()
-        #     goal_orientation, robot_orientation = self.get_individual_orientations(self.goal_pose)
-        #     self.get_logger().info(f"goal orientation is {goal_orientation[2]} and robot orientation is {robot_orientation[2]}")
-        #     # self.get_logger().info(f"orientation in world frame is {robot_orientation_in_world_frame}")
-        #     self.get_logger().info(f"axis is {dock_axis}")
-        #     self.get_logger().info(f"dx is {dx} and dy is {dy}")
-        #     self.get_logger().info(f"rotation direction {rotation_direction}")
-        #     time.sleep(10)
 
         msg = Twist()
         self.publisher_.publish(msg)
