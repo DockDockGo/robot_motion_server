@@ -202,7 +202,7 @@ class DockingUndockingActionServer(Node):
         if self.robot_pose is None:
             self.get_logger().error("Map Pose Not found")
 
-        self.update_biases_to_docks(goal_handle.dock_lateral_bias, goal_handle.dock_forward_bias)
+        self.update_biases_to_docks(goal_handle.request.dock_lateral_bias, goal_handle.request.dock_forward_bias)
         self.dock_id = int(abs(goal_handle.request.secs))
         self.get_logger().info(f"Docking Goal is {self.dock_id}")
 
