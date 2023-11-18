@@ -85,14 +85,11 @@ class DockingUndockingActionServer(Node):
 
         # Fiducial Subscriber
         self.fiducial_subscription = self.create_subscription(
-            msg_type=FiducialMarkerData, #TODO # Add message type
+            msg_type=FiducialMarkerData,
             topic="/fiducial_marker_data",
             callback=self.fiducial_orientation_range_callback,
             qos_profile=10,  # Adjust the queue size as needed
         )
-
-        # get euclidean distance first
-        self.define_goal_pose()
 
     def define_goal_pose(self, dx, dy):
         self.goal_pose = PoseStamped()
@@ -108,16 +105,19 @@ class DockingUndockingActionServer(Node):
         self.robot_pose = msg
 
     def fiducial_orientation_range_callback(self, msg):
-        self.fiducial_marker_id = msg.marker_frame_id
+        self.fiducial_marker_id = int(msg.marker_frame_id[-1])
         if self.dock_id is None:
             self.fiducial_lateral_offset = msg.lateral_offset + self.y_bias
             self.fiducial_range = msg.range
             self.fiducial_orientation = msg.yaw
         # verification check to ensure we only use pose from correct DockID
-        elif self.dock_id == self.fiducial_marker_id:
+        elif (self.dock_id is not None) and (int(self.dock_id) == self.fiducial_marker_id):
+            self.get_logger().info("got matched dock ID")
             self.fiducial_lateral_offset = msg.lateral_offset + self.y_bias
             self.fiducial_range = msg.range
             self.fiducial_orientation = msg.yaw
+        else:
+            self.get_logger().info(f"got wrong fiducial ID {self.fiducial_marker_id}")
 
     def publish_zero_twist(self):
         msg = Twist()
@@ -172,10 +172,10 @@ class DockingUndockingActionServer(Node):
             return None
         else:
             raise ValueError("Input pose1 is not a valid type (Pose or PoseWithCovariance)")
-        dx = pos1.position.x - pos2.position.x
-        dy = pos1.position.y - pos2.position.y
+        ex = pos1.position.x - pos2.position.x
+        ey = pos1.position.y - pos2.position.y
 
-        return math.sqrt(dx**2 + dy**2)
+        return ex, ey
 
 
     def execute_callback(self, goal_handle):
@@ -209,57 +209,56 @@ class DockingUndockingActionServer(Node):
             return result
 
         ################## Fiducial Docking ##################
-        # Verify if fiducial pose present
-        if self.fiducial_pose is None:
-            result.success = False
-            goal_handle.succeed()
-            return result
 
         # Step1: Align Pose to fiducial
         while(abs(self.fiducial_orientation) > 3): # NOTE: self.fiducial_orientation in degrees
             rotation_direction = math.copysign(1, self.fiducial_orientation)
             self.get_logger().info(f"Docking_1 in Progress with orientation {self.fiducial_orientation}")
             msg = Twist()
-            msg.angular.z = 0.4 * -1 * rotation_direction
+            msg.angular.z = 0.1 * -1 * rotation_direction
             self.publisher_.publish(msg)
-            time.sleep(0.1)
+            time.sleep(0.02)
 
         self.publish_zero_twist()
 
         # Step2: Calculate the error in pre_dock and use that to set new goal_pose
         dy = self.fiducial_lateral_offset
         dx = 0.0
-        self.define_goal_pose(dx, dy)
+        self.define_goal_pose(dx, dy) #! Fix your goal pose, something wrong here
 
         # Step3: Turn robot 90 degrees depending on which side of the fiducial we are located
         rotation_direction_1 = math.copysign(1, dy)
         rotation_direction_2 = -1 * math.copysign(1, dy)
         dtheta = self.calc_dtheta()
-        while(not (dtheta > 44 and dtheta < 46)):
+        while(not (dtheta > 89 and dtheta < 93)):
+            self.get_logger().info(f"Docking_3 in Progress with dtheta {dtheta}")
             msg = Twist()
-            msg.angular.z = 0.4 * rotation_direction_1
+            msg.angular.z = 0.1 * rotation_direction_1
             self.publisher_.publish(msg)
-            time.sleep(0.1)
+            time.sleep(0.02)
             dtheta = self.calc_dtheta()
 
         self.publish_zero_twist()
 
         # Step4: Move to goal pose
-        dist = self.calc_euclidean_dist()
-        while(dist > self.goal_lateral_threshold):
+        error_x, error_y = self.calc_euclidean_dist()
+        self.get_logger().info(f"Docking_4 Going to start with dx {error_x} and dy {error_y}")
+        while(abs(error_y) > self.goal_lateral_threshold):
+            self.get_logger().info(f"Docking_4 in Progress with dx {error_x} and dy {error_y}")
             msg = Twist()
-            msg.linear.x = 0.2
+            msg.linear.x = 0.05
             self.publisher_.publish(msg)
-            time.sleep(0.1)
-            dist = self.calc_euclidean_dist()
+            time.sleep(0.02)
+            error_x, error_y = self.calc_euclidean_dist()
 
         self.publish_zero_twist()
 
         # Step5: Use the rotation_direction of Step3
         dtheta = self.calc_dtheta()
+        self.get_logger().info(f"Docking_5 Going to start with dtheta {dtheta}")
         while(dtheta < 2):
             msg = Twist()
-            msg.angular.z = 0.4 * rotation_direction_2
+            msg.angular.z = 0.1 * rotation_direction_2
             self.publisher_.publish(msg)
             time.sleep(0.1)
             dtheta = self.calc_dtheta()
@@ -267,7 +266,8 @@ class DockingUndockingActionServer(Node):
         self.publish_zero_twist()
 
         # Step6: Move robot backwards until fiducial range is minimized
-        while(self.fiducial_range > self.robot_to_fiducial_goal_distance):
+        self.get_logger().info(f"Docking_6 Going to start with fiducial range={self.fiducial_range}")
+        while(self.fiducial_range > abs(self.robot_to_fiducial_goal_distance)):
             msg = Twist()
             msg.linear.x = -0.2
             self.publisher_.publish(msg)
@@ -275,13 +275,9 @@ class DockingUndockingActionServer(Node):
 
         # Step7: Verify if goal pose has been reached
         if self.fiducial_lateral_offset < 0.05 and abs(self.fiducial_range - self.robot_to_fiducial_goal_distance) < 0.05:
-            self.get_logger().info(f"Successfully doced with fiducial lateral offset
-                                     at {self.fiducial_lateral_offset} and
-                                     fiducial range at {self.fiducial_range}")
+            self.get_logger().info(f"Successfully doced with fiducial lateral offset at {self.fiducial_lateral_offset} and fiducial range at {self.fiducial_range}")
         else:
-            self.get_logger().info(f"Bad Docking with fiducial lateral offset
-                                     at {self.fiducial_lateral_offset} and
-                                     fiducial range at {self.fiducial_range}")
+            self.get_logger().info(f"Bad Docking with fiducial lateral offset at {self.fiducial_lateral_offset} and fiducial range at {self.fiducial_range}")
 
         # while(True):
         #     # dx,dy,dtheta,true_dtheta = self.calc_dx_dy_dtheta(self.goal_pose)
