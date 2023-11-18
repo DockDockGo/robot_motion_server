@@ -59,7 +59,7 @@ class DockingUndockingActionServer(Node):
         self.dock_id = None
         self.goal_lateral_threshold = 0.05 # metres
         self.undock_duration = 1
-        self.forward_velocity = 0.05
+        self.forward_velocity = 0.08
         self.angular_velocity = math.pi/4
 
         # define biases to be used for docking
