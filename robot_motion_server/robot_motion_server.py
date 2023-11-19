@@ -220,6 +220,14 @@ class DockingUndockingActionServer(Node):
             goal_handle.succeed()
             return result
 
+        time.sleep(2) # wait for marker detections to become available
+        # If no Aruco Tag was found
+        if self.fiducial_marker_id is None:
+            self.get_logger().info("Cannot Undock Without Aruco")
+            result.success = False
+            goal_handle.succeed()
+            return result
+
         ################## Fiducial Docking ##################
 
         # Step1: Align Pose to fiducial
@@ -228,14 +236,14 @@ class DockingUndockingActionServer(Node):
         self.get_logger().info(f"rotation direction is {rotation_direction}")
         start = self.get_current_time()
         end = self.get_current_time()
-        if self.fiducial_orientation > 2: # correct only if orientation error is bad
-            while(abs(end-start) < rotation_duration):
-                msg = Twist()
-                msg.angular.z = self.angular_velocity * -1.0 * rotation_direction
-                self.get_logger().info(f"Docking_1 in Progress with dtheta")
-                self.publisher_.publish(msg)
-                time.sleep(0.01)
-                end = self.get_current_time()
+        # if self.fiducial_orientation > 2: # correct only if orientation error is bad
+        while(abs(end-start) < rotation_duration):
+            msg = Twist()
+            msg.angular.z = self.angular_velocity * -1.0 * rotation_direction
+            self.get_logger().info(f"Docking_1 in Progress with dtheta")
+            self.publisher_.publish(msg)
+            time.sleep(0.01)
+            end = self.get_current_time()
 
         self.publish_zero_twist()
 
@@ -250,21 +258,19 @@ class DockingUndockingActionServer(Node):
         dt = abs(dy)/self.forward_velocity
 
         # Step 3
-        if current_fiducial_offset > 0.05: # fiducial offset is greater than 5 cm error
-            rotation_direction_1 = math.copysign(1, self.fiducial_lateral_offset)
-            rotation_direction_2 = -1 * math.copysign(1, self.fiducial_lateral_offset)
-            msg = Twist()
-            msg.angular.z = self.angular_velocity * rotation_direction_1
-            start = self.get_current_time()
+        rotation_direction_1 = math.copysign(1, self.fiducial_lateral_offset)
+        rotation_direction_2 = -1 * math.copysign(1, self.fiducial_lateral_offset)
+        # if current_fiducial_offset > 0.05: # fiducial offset is greater than 5 cm error
+        msg = Twist()
+        msg.angular.z = self.angular_velocity * rotation_direction_1
+        start = self.get_current_time()
+        end = self.get_current_time()
+        rotation_duration = 2 # second
+        while(abs(end-start) < rotation_duration):
+            self.get_logger().info(f"Docking_3 in Progress with dtheta")
+            self.publisher_.publish(msg)
+            time.sleep(0.01)
             end = self.get_current_time()
-            rotation_duration = 2 # second
-            while(abs(end-start) < rotation_duration):
-                self.get_logger().info(f"Docking_3 in Progress with dtheta")
-                self.publisher_.publish(msg)
-                time.sleep(0.01)
-                end = self.get_current_time()
-
-        self.publish_zero_twist()
 
         # Step 4
         msg = Twist()
