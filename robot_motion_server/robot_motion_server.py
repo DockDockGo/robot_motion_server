@@ -305,27 +305,27 @@ class DockingUndockingActionServer(Node):
 
         self.publish_zero_twist()
 
-        # Step6: Align Pose to fiducial again
-        while(current_fiducial_offset == self.fiducial_lateral_offset and (abs(time.time() - start < 10))):
-            time.sleep(0.5) # wait until we get new fiducial reading
-        if abs(time.time() - start) > 10:
-            self.get_logger().info("Cannot Undock Without Aruco")
-            result.success = False
-            goal_handle.succeed()
-            return result
-        rotation_direction = math.copysign(1, self.fiducial_orientation)
-        rotation_duration = (abs(self.fiducial_orientation) * (math.pi/180))/self.angular_velocity # in radians
-        self.get_logger().info(f"rotation direction is {rotation_direction}")
-        start = self.get_current_time()
-        end = self.get_current_time()
-        # if self.fiducial_orientation > 2: # correct only if orientation error is bad
-        self.get_logger().info(f"Docking_6 in Progress with dtheta")
-        while(abs(end-start) < rotation_duration):
-            msg = Twist()
-            msg.angular.z = self.angular_velocity * -1.0 * rotation_direction
-            self.publisher_.publish(msg)
-            time.sleep(0.1)
-            end = self.get_current_time()
+        # # Step6: Align Pose to fiducial again
+        # while(current_fiducial_offset == self.fiducial_lateral_offset and (abs(time.time() - start < 10))):
+        #     time.sleep(0.5) # wait until we get new fiducial reading
+        # if abs(time.time() - start) > 10:
+        #     self.get_logger().info("Cannot Undock Without Aruco")
+        #     result.success = False
+        #     goal_handle.succeed()
+        #     return result
+        # rotation_direction = math.copysign(1, self.fiducial_orientation)
+        # rotation_duration = (abs(self.fiducial_orientation) * (math.pi/180))/self.angular_velocity # in radians
+        # self.get_logger().info(f"rotation direction is {rotation_direction}")
+        # start = self.get_current_time()
+        # end = self.get_current_time()
+        # # if self.fiducial_orientation > 2: # correct only if orientation error is bad
+        # self.get_logger().info(f"Docking_6 in Progress with dtheta")
+        # while(abs(end-start) < rotation_duration):
+        #     msg = Twist()
+        #     msg.angular.z = self.angular_velocity * -1.0 * rotation_direction
+        #     self.publisher_.publish(msg)
+        #     time.sleep(0.1)
+        #     end = self.get_current_time()
 
         self.publish_zero_twist()
 
