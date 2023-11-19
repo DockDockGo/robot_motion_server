@@ -291,7 +291,7 @@ class DockingUndockingActionServer(Node):
         start = self.get_current_time()
         end = self.get_current_time()
         rotation_duration = 2 # second
-        self.get_logger().info(f"Docking_3 in Progress")
+        self.get_logger().info(f"Docking_5 in Progress")
         while(abs(end-start) < rotation_duration):
             self.publisher_.publish(msg)
             time.sleep(0.05)
