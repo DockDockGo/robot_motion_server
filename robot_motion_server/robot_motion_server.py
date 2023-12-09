@@ -18,7 +18,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 import math
 import time
-from threading import Event
+from threading import Event, Lock
 from tf_transformations import euler_from_quaternion
 
 # Handling Sync and Async : https://discourse.ros.org/t/how-to-use-callback-groups-in-ros2/25255
@@ -43,6 +43,10 @@ class DockingUndockingActionServer(Node):
             action_server_name = "DockUndock"
             publisher_topic = "/cmd_vel"
 
+        # Necessary for taking only the latest goal
+        self._goal_lock = Lock()
+        self._goal_handle = None
+
         self.get_logger().info(f"cmd vel topic is {publisher_topic}")
 
         # construct the action server
@@ -50,9 +54,21 @@ class DockingUndockingActionServer(Node):
             self,
             DockUndock,
             action_server_name,
-            self.execute_callback)
+            handle_accepted_callback=self.handle_accepted_callback,
+            execute_callback=self.execute_callback)
         self.publisher_ = self.create_publisher(Twist, publisher_topic, 10)
 
+
+    def handle_accepted_callback(self, goal_handle):
+        with self._goal_lock:
+            # This server only allows one goal at a time
+            if self._goal_handle is not None and self._goal_handle.is_active:
+                self.get_logger().info('Aborting previous goal')
+                # Abort the existing goal
+                self._goal_handle.abort()
+            self._goal_handle = goal_handle
+
+        goal_handle.execute()
 
     def execute_callback(self, goal_handle):
         self.get_logger().info('Executing Docking/Undocking...')
@@ -70,10 +86,23 @@ class DockingUndockingActionServer(Node):
         if goal_handle.request.secs < 0:
             msg.linear.x = -1 * msg.linear.x
 
-        for i in range(0, goal_duration):
+        for i in range(0, 3):
+            if not goal_handle.is_active:
+                self.get_logger().info('Goal aborted')
+                result = DockUndock.Result()
+                result.success = False
+                return result
+
+            if goal_handle.is_cancel_requested:
+                goal_handle.canceled()
+                self.get_logger().info('Goal canceled')
+                result = DockUndock.Result()
+                result.success = False
+                return result
+
             self.get_logger().info("Docking/Undocking in Progress")
             self.publisher_.publish(msg)
-            time.sleep(1)
+            time.sleep(0.01)
 
         msg.linear.x = 0.0
         self.publisher_.publish(msg)
@@ -114,7 +143,8 @@ class MotionActionServer(Node):
         self.get_logger().info(f"DDG Waypoint follower Client name is {waypoint_follower_service_name}")
 
         self.callback_group = ReentrantCallbackGroup()
-        self.motion_server_goal_handle = None
+        self._motion_server_goal_handle = None
+        self._goal_lock = Lock()
 
         self.ddg_waypoint_follower = self.create_client(srv_type=DdgExecuteWaypoints,
                                                         srv_name=waypoint_follower_service_name,
@@ -148,11 +178,12 @@ class MotionActionServer(Node):
             self,
             Navigate,
             action_server_name,
-            self.execute_callback,
+            execute_callback=self.execute_callback,
+            handle_accepted_callback=self.handle_accepted_callback,
             callback_group=self.callback_group)
 
         # Create a simple timer callback within a different callback group
-        self.timer = self.create_timer(0.5, callback_group=self.callback_group, callback=self.simple_timer_callback)
+        self.timer = self.create_timer(0.1, callback_group=self.callback_group, callback=self.simple_timer_callback)
 
 
     def robot_pose_callback(self, msg):
@@ -197,15 +228,42 @@ class MotionActionServer(Node):
         distance = math.sqrt(dx**2 + dy**2)
         self.distance_to_goal = distance
 
+    def handle_accepted_callback(self, goal_handle):
+        with self._goal_lock:
+            # This server only allows one goal at a time
+            if self._motion_server_goal_handle is not None and self._motion_server_goal_handle.is_active:
+                self.get_logger().info('Aborting previous goal')
+                # Abort the existing goal
+                self._motion_server_goal_handle.abort()
+            # accept the new goal handle
+            self._motion_server_goal_handle = goal_handle
+
+        goal_handle.execute()
+
+
     def simple_timer_callback(self):
         # check if robot within goal radius
         self.euclidean_distance()
+
+        # If goal is flagged as no longer active (ie. another goal was accepted),
+        # then stop executing
+        if not self._motion_server_goal_handle.is_active:
+            self.get_logger().info('Goal aborted')
+            self.navigator_final_success = False
+            self.action_complete.set()
+
+        # check for aborted or cancelled goal handle
+        if self._motion_server_goal_handle.is_cancel_requested:
+            self._motion_server_goal_handle.canceled()
+            self.get_logger().info('Goal canceled')
+            self.navigator_final_success = False
+            self.action_complete.set()
 
         # Publish Feedback:
         if self.distance_to_goal is not None:
             feedback_msg = Navigate.Feedback()
             feedback_msg.pose_feedback = self.robot_pose
-            self.motion_server_goal_handle.publish_feedback(feedback_msg)
+            self._motion_server_goal_handle.publish_feedback(feedback_msg)
 
         # distance in metres and orientation in degrees
         # self.get_logger().info(f'{self.distance_to_goal=}')
@@ -225,7 +283,7 @@ class MotionActionServer(Node):
         """
         Callback of action server with goal_handle.request having input to action server
         """
-        self.motion_server_goal_handle = goal_handle
+        self._motion_server_goal_handle = goal_handle
         route = goal_handle.request.goals
         self.goal_pose = route[-1]
         routh_path = Path()
@@ -261,8 +319,8 @@ def MotionServer(args=None):
     multi_executor = MultiThreadedExecutor()
     robot_motion_action_server = MotionActionServer()
     rclpy.spin(robot_motion_action_server, executor=multi_executor)
-    robot_motion_action_server.destroy_node()
-    rclpy.shutdown()
+    # robot_motion_action_server.destroy_node()
+    # rclpy.shutdown()
 
 
 def DockUndockServer(args=None):
@@ -272,8 +330,8 @@ def DockUndockServer(args=None):
     # robot_motion_action_server = MotionActionServer(nav2_client, get_pose_client)
     robot_dockundock_action_server = DockingUndockingActionServer()
     rclpy.spin(robot_dockundock_action_server)
-    robot_dockundock_action_server.destroy_node()
-    rclpy.shutdown()
+    # robot_dockundock_action_server.destroy_node()
+    # rclpy.shutdown()
 
 
 if __name__ == '__main__':
