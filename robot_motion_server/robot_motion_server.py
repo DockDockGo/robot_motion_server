@@ -66,6 +66,7 @@ class DockingUndockingActionServer(Node):
                 self.get_logger().info('Aborting previous goal')
                 # Abort the existing goal
                 self._goal_handle.abort()
+                time.sleep(0.5)
             self._goal_handle = goal_handle
 
         goal_handle.execute()
@@ -86,7 +87,9 @@ class DockingUndockingActionServer(Node):
         if goal_handle.request.secs < 0:
             msg.linear.x = -1 * msg.linear.x
 
-        for i in range(0, 3):
+        start = self.get_clock().now().to_msg().sec
+        end = self.get_clock().now().to_msg().sec
+        while (end-start < 4):
             if not goal_handle.is_active:
                 self.get_logger().info('Goal aborted')
                 result = DockUndock.Result()
@@ -100,9 +103,10 @@ class DockingUndockingActionServer(Node):
                 result.success = False
                 return result
 
-            self.get_logger().info("Docking/Undocking in Progress")
+            # self.get_logger().info("Docking/Undocking in Progress")
             self.publisher_.publish(msg)
-            time.sleep(0.01)
+            end = self.get_clock().now().to_msg().sec
+            time.sleep(0.1)
 
         msg.linear.x = 0.0
         self.publisher_.publish(msg)
@@ -235,6 +239,7 @@ class MotionActionServer(Node):
                 self.get_logger().info('Aborting previous goal')
                 # Abort the existing goal
                 self._motion_server_goal_handle.abort()
+                time.sleep(0.5)
             # accept the new goal handle
             self._motion_server_goal_handle = goal_handle
 
@@ -244,20 +249,6 @@ class MotionActionServer(Node):
     def simple_timer_callback(self):
         # check if robot within goal radius
         self.euclidean_distance()
-
-        # If goal is flagged as no longer active (ie. another goal was accepted),
-        # then stop executing
-        if not self._motion_server_goal_handle.is_active:
-            self.get_logger().info('Goal aborted')
-            self.navigator_final_success = False
-            self.action_complete.set()
-
-        # check for aborted or cancelled goal handle
-        if self._motion_server_goal_handle.is_cancel_requested:
-            self._motion_server_goal_handle.canceled()
-            self.get_logger().info('Goal canceled')
-            self.navigator_final_success = False
-            self.action_complete.set()
 
         # Publish Feedback:
         if self.distance_to_goal is not None:
@@ -269,7 +260,7 @@ class MotionActionServer(Node):
         # self.get_logger().info(f'{self.distance_to_goal=}')
         # self.get_logger().info(f'{self.orientation_difference=}')
         if self.distance_to_goal is not None and self.distance_to_goal < 0.1 and self.orientation_difference is not None and self.orientation_difference < 5.0:
-            self.get_logger().info("Setting navigation to COMPLETE!")
+            # self.get_logger().info("Setting navigation to COMPLETE!")
             self.navigator_final_success = True
             self.action_complete.set()
 
@@ -283,9 +274,18 @@ class MotionActionServer(Node):
         """
         Callback of action server with goal_handle.request having input to action server
         """
-        self._motion_server_goal_handle = goal_handle
         route = goal_handle.request.goals
-        self.goal_pose = route[-1]
+        if len(route) > 0:
+            self.goal_pose = route[-1]
+        # handling cancel case when (0,0) is passed from state machine with empty waypoint list
+        else:
+            self.ddg_waypoint_follower_path.waypoints = Path()
+            waypoint_future = self.ddg_waypoint_follower.call_async(self.ddg_waypoint_follower_path)
+            time.sleep(3) # wait for robot to reach it's next waypoint and stop
+            motion_server_result = Navigate.Result()
+            motion_server_result.success = True
+            return motion_server_result
+
         routh_path = Path()
         routh_path.poses = route
         self.get_logger().info(f"Goals to waypoint follower are {str(routh_path)}")
@@ -296,7 +296,25 @@ class MotionActionServer(Node):
         waypoint_future = self.ddg_waypoint_follower.call_async(self.ddg_waypoint_follower_path)
         waypoint_future.add_done_callback(self.waypoint_follower_callback)
 
-        self.action_complete.wait()
+        # self.action_complete.wait()
+
+        while not self.action_complete.is_set():
+            if not goal_handle.is_active:
+                self.get_logger().info('Goal aborted')
+                motion_server_result = Navigate.Result()
+                motion_server_result.success = False
+                return motion_server_result
+
+            # check for aborted or cancelled goal handle
+            if goal_handle.is_cancel_requested:
+                self._motion_server_goal_handle.canceled()
+                self.get_logger().info('Goal canceled')
+                motion_server_result = Navigate.Result()
+                motion_server_result.success = True
+                return motion_server_result
+
+            time.sleep(0.1)
+
         motion_server_result = Navigate.Result()
         goal_handle.succeed()
 
