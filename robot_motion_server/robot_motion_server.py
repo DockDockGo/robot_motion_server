@@ -19,7 +19,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 import math
 import time
-from threading import Event
+from threading import Event, Lock
 from tf_transformations import euler_from_quaternion
 from fiducial_msgs.msg import FiducialMarkerData
 
@@ -61,6 +61,8 @@ class DockingUndockingActionServer(Node):
         self.undock_duration = 1
         self.forward_velocity = 0.08
         self.angular_velocity = math.pi/4
+        self._goal_lock = Lock()
+        self._goal_handle = None
 
         self.update_biases_to_docks(lateral_bias=0.0, forward_bias=0.0)
 
@@ -69,7 +71,8 @@ class DockingUndockingActionServer(Node):
             self,
             DockUndock,
             action_server_name,
-            self.execute_callback,
+            execute_callback=self.execute_callback,
+            handle_accepted_callback=self.handle_accepted_callback,
             callback_group=self.callback_group)
 
         self.publisher_ = self.create_publisher(Twist, publisher_topic, 10)
@@ -89,6 +92,18 @@ class DockingUndockingActionServer(Node):
             callback=self.fiducial_orientation_range_callback,
             qos_profile=10,  # Adjust the queue size as needed
         )
+
+    def handle_accepted_callback(self, goal_handle):
+        with self._goal_lock:
+            # This server only allows one goal at a time
+            if self._goal_handle is not None and self._goal_handle.is_active:
+                self.get_logger().info('Aborting previous goal')
+                # Abort the existing goal
+                self._goal_handle.abort()
+                time.sleep(0.5)
+            self._goal_handle = goal_handle
+
+        goal_handle.execute()
 
     def update_biases_to_docks(self, lateral_bias, forward_bias):
         # define biases to be used for docking
@@ -205,23 +220,36 @@ class DockingUndockingActionServer(Node):
 
         self.update_biases_to_docks(goal_handle.request.dock_lateral_bias, goal_handle.request.dock_forward_bias)
         self.dock_id = int(abs(goal_handle.request.secs))
-        self.get_logger().info(f"Docking Goal is {self.dock_id}")
+        self.get_logger().info(f"Docking/Undocking Goal is {self.dock_id}")
 
         ################## Simple Undocking ##################
         if goal_handle.request.secs > 0.0:
             msg = Twist()
             msg.linear.x = 0.2
+            self.get_logger().info("Undocking in Progress")
             for i in range(0, self.undock_duration):
-                self.get_logger().info("Undocking in Progress")
+                if not goal_handle.is_active:
+                    self.get_logger().info('Goal aborted')
+                    result = DockUndock.Result()
+                    result.success = False
+                    return result
+
+                if goal_handle.is_cancel_requested:
+                    goal_handle.canceled()
+                    self.get_logger().info('Goal canceled')
+                    result = DockUndock.Result()
+                    result.success = False
+                    return result
+
                 self.publisher_.publish(msg)
-                time.sleep(1)
+                time.sleep(0.5)
 
             self.get_logger().info("FINISHED UNDOCKING")
             result.success = True
             goal_handle.succeed()
             return result
 
-        time.sleep(2) # wait for marker detections to become available
+        time.sleep(3) # wait for marker detections to become available
         # If no Aruco Tag was found
         if self.fiducial_marker_id is None:
             self.get_logger().info("Cannot Undock Without Aruco")
@@ -244,6 +272,20 @@ class DockingUndockingActionServer(Node):
             msg.angular.z = self.angular_velocity * -1.0 * rotation_direction
             self.publisher_.publish(msg)
             time.sleep(0.1)
+            if not goal_handle.is_active:
+                self.get_logger().info('Goal aborted')
+                result = DockUndock.Result()
+                result.success = False
+                self.publish_zero_twist()
+                return result
+
+            if goal_handle.is_cancel_requested:
+                goal_handle.canceled()
+                self.get_logger().info('Goal canceled')
+                result = DockUndock.Result()
+                result.success = False
+                self.publish_zero_twist()
+                return result
             end = self.get_current_time()
 
         self.publish_zero_twist()
@@ -287,6 +329,20 @@ class DockingUndockingActionServer(Node):
         while(abs(end-start) < dt):
             self.publisher_.publish(msg)
             time.sleep(0.1)
+            if not goal_handle.is_active:
+                self.get_logger().info('Goal aborted')
+                result = DockUndock.Result()
+                result.success = False
+                self.publish_zero_twist()
+                return result
+
+            if goal_handle.is_cancel_requested:
+                goal_handle.canceled()
+                self.get_logger().info('Goal canceled')
+                result = DockUndock.Result()
+                result.success = False
+                self.publish_zero_twist()
+                return result
             end = self.get_current_time()
 
         self.publish_zero_twist()
@@ -301,6 +357,20 @@ class DockingUndockingActionServer(Node):
         while(abs(end-start) < rotation_duration):
             self.publisher_.publish(msg)
             time.sleep(0.1)
+            if not goal_handle.is_active:
+                self.get_logger().info('Goal aborted')
+                result = DockUndock.Result()
+                result.success = False
+                self.publish_zero_twist()
+                return result
+
+            if goal_handle.is_cancel_requested:
+                goal_handle.canceled()
+                self.get_logger().info('Goal canceled')
+                result = DockUndock.Result()
+                result.success = False
+                self.publish_zero_twist()
+                return result
             end = self.get_current_time()
 
         self.publish_zero_twist()
@@ -336,6 +406,20 @@ class DockingUndockingActionServer(Node):
         while(self.fiducial_range > abs(self.robot_to_fiducial_goal_distance)):
             self.publisher_.publish(msg)
             time.sleep(0.1)
+            if not goal_handle.is_active:
+                self.get_logger().info('Goal aborted')
+                result = DockUndock.Result()
+                result.success = False
+                self.publish_zero_twist()
+                return result
+
+            if goal_handle.is_cancel_requested:
+                goal_handle.canceled()
+                self.get_logger().info('Goal canceled')
+                result = DockUndock.Result()
+                result.success = False
+                self.publish_zero_twist()
+                return result
 
         # Step7: Verify if goal pose has been reached
         if self.fiducial_lateral_offset < 0.05 and abs(self.fiducial_range - self.robot_to_fiducial_goal_distance) < 0.05:
@@ -380,7 +464,8 @@ class MotionActionServer(Node):
         self.get_logger().info(f"DDG Waypoint follower Client name is {waypoint_follower_service_name}")
 
         self.callback_group = ReentrantCallbackGroup()
-        self.motion_server_goal_handle = None
+        self._motion_server_goal_handle = None
+        self._goal_lock = Lock()
 
         self.ddg_waypoint_follower = self.create_client(srv_type=DdgExecuteWaypoints,
                                                         srv_name=waypoint_follower_service_name,
@@ -414,7 +499,8 @@ class MotionActionServer(Node):
             self,
             Navigate,
             action_server_name,
-            self.execute_callback,
+            execute_callback=self.execute_callback,
+            handle_accepted_callback=self.handle_accepted_callback,
             callback_group=self.callback_group)
 
         # Create a simple timer callback within a different callback group
@@ -463,6 +549,20 @@ class MotionActionServer(Node):
         distance = math.sqrt(dx**2 + dy**2)
         self.distance_to_goal = distance
 
+    def handle_accepted_callback(self, goal_handle):
+        with self._goal_lock:
+            # This server only allows one goal at a time
+            if self._motion_server_goal_handle is not None and self._motion_server_goal_handle.is_active:
+                self.get_logger().info('Aborting previous goal')
+                # Abort the existing goal
+                self._motion_server_goal_handle.abort()
+                time.sleep(0.5)
+            # accept the new goal handle
+            self._motion_server_goal_handle = goal_handle
+
+        goal_handle.execute()
+
+
     def simple_timer_callback(self):
         # check if robot within goal radius
         self.euclidean_distance()
@@ -471,7 +571,8 @@ class MotionActionServer(Node):
         if self.distance_to_goal is not None:
             feedback_msg = Navigate.Feedback()
             feedback_msg.pose_feedback = self.robot_pose
-            self.motion_server_goal_handle.publish_feedback(feedback_msg)
+            if self._motion_server_goal_handle is not None:
+                self._motion_server_goal_handle.publish_feedback(feedback_msg)
 
         # distance in metres and orientation in degrees
         # self.get_logger().info(f'{self.distance_to_goal=}')
@@ -491,9 +592,19 @@ class MotionActionServer(Node):
         """
         Callback of action server with goal_handle.request having input to action server
         """
-        self.motion_server_goal_handle = goal_handle
         route = goal_handle.request.goals
-        self.goal_pose = route[-1]
+
+        if len(route) > 0:
+            self.goal_pose = route[-1]
+        # handling cancel case when (0,0) is passed from state machine with empty waypoint list
+        else:
+            self.ddg_waypoint_follower_path.waypoints = Path()
+            waypoint_future = self.ddg_waypoint_follower.call_async(self.ddg_waypoint_follower_path)
+            time.sleep(3) # wait for robot to reach it's next waypoint and stop
+            motion_server_result = Navigate.Result()
+            motion_server_result.success = True
+            return motion_server_result
+
         routh_path = Path()
         routh_path.poses = route
         self.get_logger().info(f"Goals to waypoint follower are {str(routh_path)}")
@@ -504,7 +615,24 @@ class MotionActionServer(Node):
         waypoint_future = self.ddg_waypoint_follower.call_async(self.ddg_waypoint_follower_path)
         waypoint_future.add_done_callback(self.waypoint_follower_callback)
 
-        self.action_complete.wait()
+        # self.action_complete.wait()
+        while not self.action_complete.is_set():
+            if not goal_handle.is_active:
+                self.get_logger().info('Goal aborted')
+                motion_server_result = Navigate.Result()
+                motion_server_result.success = False
+                return motion_server_result
+
+            # check for aborted or cancelled goal handle
+            if goal_handle.is_cancel_requested:
+                goal_handle.canceled()
+                self.get_logger().info('Goal canceled')
+                motion_server_result = Navigate.Result()
+                motion_server_result.success = True
+                return motion_server_result
+
+            time.sleep(0.1)
+
         motion_server_result = Navigate.Result()
         goal_handle.succeed()
 
