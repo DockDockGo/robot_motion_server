@@ -490,11 +490,17 @@ class MotionActionServer(Node):
             callback_group=self.callback_group)
 
         # Create a simple timer callback within a different callback group
-        self.timer = self.create_timer(0.5, callback_group=self.callback_group, callback=self.simple_timer_callback)
+        self.timer = self.create_timer(1.0, callback_group=self.callback_group, callback=self.simple_timer_callback)
 
 
     def robot_pose_callback(self, msg):
         self.robot_pose = msg
+
+    def get_current_time(self):
+        # Get the current wall clock time
+        wall_clock_time = self.get_clock().now()
+        # Convert the ROS Time to a Python float representing seconds
+        return wall_clock_time.to_msg().sec + wall_clock_time.to_msg().nanosec / 1e9
 
     def wrap_around_pi(self, x):
         x = abs(x)
@@ -563,10 +569,20 @@ class MotionActionServer(Node):
         # distance in metres and orientation in degrees
         # self.get_logger().info(f'{self.distance_to_goal=}')
         # self.get_logger().info(f'{self.orientation_difference=}')
+        start_time = None
+        start_orientation = None
         if self.distance_to_goal is not None and self.distance_to_goal < 0.1 and self.orientation_difference is not None and self.orientation_difference < 5.0:
-            # self.get_logger().info("Setting navigation to COMPLETE!")
-            self.navigator_final_success = True
-            self.action_complete.set()
+            if start_time is None and start_orientation is None:
+                start_time = self.get_current_time()
+                start_orientation = self.orientation_difference
+            else:
+                end_time = self.get_current_time()
+                # check if robot has been in the same orientation for 3 seconds
+                if abs(end_time - start_time) > 3.0 and start_orientation == self.orientation_difference:
+                    self.navigator_final_success = True
+                    self.action_complete.set()
+                elif start_orientation != self.orientation_difference:
+                    start_orientation = self.orientation_difference
 
 
     def waypoint_follower_callback(self, future):
